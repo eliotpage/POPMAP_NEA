@@ -181,7 +181,7 @@ class DStarLite:
         if hostile_count > 0:
             inv_mask = ~self.hostile_mask
             distance_cells = distance_transform_edt(inv_mask)
-            meters_per_pixel = np.mean(self.dem.res) * 111000
+            meters_per_pixel = self.meters_per_pixel()
             distance_m = distance_cells * meters_per_pixel
             
             influence_cost = np.clip((influence_radius_m - distance_m) / influence_radius_m * cost_multiplier, 0, cost_multiplier)
@@ -200,6 +200,20 @@ class DStarLite:
         a = np.sin(dLat / 2) ** 2 + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dLon / 2) ** 2
         c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
         return R * c
+
+    def meters_per_pixel(self):
+        """ Returns average raster resolution in meters per pixel. """
+        x_res = abs(self.dem.res[0])
+        y_res = abs(self.dem.res[1])
+
+        if self.dem.crs and self.dem.crs.is_geographic:
+            center_lat = (self.dem.bounds.top + self.dem.bounds.bottom) / 2
+            lat_m = y_res * 111320.0
+            lon_m = x_res * 111320.0 * np.cos(np.radians(center_lat))
+            lon_m = max(lon_m, 0.01)
+            return (lat_m + lon_m) / 2
+
+        return (x_res + y_res) / 2
 
     # Assess path risk based on proximity to hostile zones (Low/Medium/High)
     def calculate_path_risk(self, path):
@@ -275,7 +289,7 @@ class DStarLite:
             if self.hostile_mask[goal_r, goal_c]:
                 debug_msgs.append("WARNING: Goal point is in a hostile zone!")
 
-        meters_per_pixel = np.mean(self.dem.res) * 111000
+        meters_per_pixel = self.meters_per_pixel()
         corridor_cells = int(corridor_m / meters_per_pixel) if corridor_m else 0
 
         min_r = max(0, min(start_r, goal_r) - corridor_cells)

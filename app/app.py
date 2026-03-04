@@ -459,14 +459,50 @@ def compute_path():
 
         dstar.apply_hostile_zones(hostile_features, influence_radius_m=100)
 
-        path, debug_msgs = dstar.compute_path(
-            (start_lat, start_lon),
-            (goal_lat, goal_lon),
-            corridor_m=corridor_m,
-            debug=True
-        )
+        debug_msgs = []
+        start_r, start_c = dstar.latlon_to_index(start_lat, start_lon)
+        goal_r, goal_c = dstar.latlon_to_index(goal_lat, goal_lon)
+
+        start_blocked = dstar.in_bounds(start_r, start_c) and dstar.hostile_mask[start_r, start_c]
+        goal_blocked = dstar.in_bounds(goal_r, goal_c) and dstar.hostile_mask[goal_r, goal_c]
+
+        if start_blocked or goal_blocked:
+            if start_blocked:
+                debug_msgs.append("Start point lies inside a hostile zone")
+            if goal_blocked:
+                debug_msgs.append("Goal point lies inside a hostile zone")
+            return jsonify(
+                error="Start or goal is inside a hostile zone. Move points outside hostile areas and retry.",
+                debug=debug_msgs
+            )
+
+        retry_corridors = [corridor_m]
+        for candidate in (max(corridor_m * 2, 100), max(corridor_m * 4, 250), None):
+            if candidate not in retry_corridors:
+                retry_corridors.append(candidate)
+
+        path = []
+        for idx, attempt_corridor in enumerate(retry_corridors):
+            if idx > 0:
+                debug_msgs.append(f"Retrying with wider corridor: {attempt_corridor if attempt_corridor is not None else 'full-map search'}")
+
+            attempt_path, attempt_debug = dstar.compute_path(
+                (start_lat, start_lon),
+                (goal_lat, goal_lon),
+                corridor_m=attempt_corridor,
+                debug=True
+            )
+            debug_msgs.extend(attempt_debug)
+
+            if attempt_path:
+                path = attempt_path
+                break
+
         if not path:
-            return jsonify(error="No path found", debug=debug_msgs)
+            return jsonify(
+                error="No path found. Try increasing corridor width or moving points around hostile barriers.",
+                debug=debug_msgs
+            )
 
         total_dist = 0
         R = 6371000

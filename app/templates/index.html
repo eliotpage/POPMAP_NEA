@@ -693,7 +693,7 @@
                         
                         if (res.error) {
                             console.error('Path computation error:', res.error);
-                            showAlert('No path found! ' + res.error + '\nCheck console for details.', 'error', 4000);
+                            showAlert(`${res.error}\nCheck console for details.`, 'error', 5000);
                             return;
                         }
                         
