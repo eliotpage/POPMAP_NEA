@@ -15,9 +15,12 @@ See [README_UNIFIED.md](README_UNIFIED.md) for complete documentation.
 ./start_client.sh              # Linux/macOS
 # or
 start_client.bat              # Windows
+
+# Optional flags
+./start_client.sh --port 5000 --tile-dir /path/to/tiles --uid <connection-id>
 ```
 
-When prompted, paste the **Connection ID** printed by the server startup.
+Use `--uid` (or `--server-id`) with the **Connection ID** printed by server startup.
 
 **Then open:** http://localhost (port 80 via nginx proxy)
 
@@ -26,6 +29,9 @@ When prompted, paste the **Connection ID** printed by the server startup.
 ./start_server.sh              # Linux/macOS
 # or  
 start_server.bat              # Windows
+
+# Optional flags
+./start_server.sh --port 5001 --tile-dir /path/to/tiles
 ```
 
 On startup, the server prints:

@@ -25,16 +25,8 @@ fi
 # Run in client mode
 export APP_MODE=client
 
-# Optional: override tile directory (defaults to app/static/tiles)
-read -r -p "Enter tiles path (leave blank for app/static/tiles): " TILE_DIR_INPUT
-if [ -n "$TILE_DIR_INPUT" ]; then
-    export TILE_DIR="$TILE_DIR_INPUT"
-fi
-
-# Optional: paste a server-issued Connection ID to auto-configure SERVER_URL
-read -r -p "Enter Connection ID (leave blank to use SERVER_URL/default): " SERVER_ID_INPUT
-if [ -n "$SERVER_ID_INPUT" ]; then
-    export SERVER_ID="$SERVER_ID_INPUT"
-fi
-
-python3 app.py
+# Optional flags:
+#   --port <client-port>
+#   --tile-dir /path/to/tiles
+#   --uid <connection-id>  (alias: --server-id)
+python3 app.py "$@"

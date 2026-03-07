@@ -30,6 +30,9 @@ REM Optional to customize connection ID signing (must match on clients):
 REM   set POPMAP_CONNECTION_SECRET=shared-connection-secret
 REM Optional to customize tile directory when using map-based routing:
 REM   set TILE_DIR=C:\path\to\tiles
+REM Optional startup flags:
+REM   --port <server-port>
+REM   --tile-dir C:\path\to\tiles
 REM Server startup will print a generated Connection ID to share with clients.
 set APP_MODE=server
-%PYTHON_CMD% app.py --server
+%PYTHON_CMD% app.py --server %*

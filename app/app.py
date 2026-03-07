@@ -34,6 +34,10 @@ import requests
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='POPMAP Application')
 parser.add_argument('--server', action='store_true', help='Run in server mode (default: client mode)')
+parser.add_argument('--port', type=int, help='Port to bind this app to (default: 5000 client, 5001 server)')
+parser.add_argument('--tile-dir', dest='tile_dir', type=str, help='Path to tile root directory (must contain zoom folders)')
+parser.add_argument('--uid', type=str, help='Connection ID for client mode (alias for SERVER_ID)')
+parser.add_argument('--server-id', dest='server_id', type=str, help='Connection ID for client mode (same as --uid)')
 args = parser.parse_args()
 
 # Determine app mode from environment variable or CLI flag
@@ -63,7 +67,7 @@ DEMO_SHARED = [
 DRAWINGS_FILE = os.path.join('data', 'drawings.json')
 SHARED_FILE = os.path.join('data', 'shared.json')
 DEFAULT_TILE_DIR = os.path.join('static', 'tiles')
-TILE_DIR = os.getenv("TILE_DIR", DEFAULT_TILE_DIR).strip() or DEFAULT_TILE_DIR
+TILE_DIR = (args.tile_dir or os.getenv("TILE_DIR", DEFAULT_TILE_DIR)).strip() or DEFAULT_TILE_DIR
 if not os.path.isabs(TILE_DIR):
     TILE_DIR = os.path.abspath(TILE_DIR)
 if not os.path.isdir(TILE_DIR):
@@ -141,8 +145,13 @@ else:
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost")
 CONNECTION_ID_SECRET = os.getenv("POPMAP_CONNECTION_SECRET", "")
 
+cli_connection_id = (args.uid or args.server_id or "").strip()
+
+if cli_connection_id and APP_MODE == "server":
+    print("[Startup] Ignoring --uid/--server-id in server mode (these are client-only flags).")
+
 if APP_MODE == "client":
-    server_id = os.getenv("SERVER_ID", "").strip()
+    server_id = cli_connection_id or os.getenv("SERVER_ID", "").strip()
     if server_id:
         try:
             # Client prefers SERVER_ID when provided because it carries a signed URL.
@@ -811,10 +820,17 @@ if __name__ == "__main__":
             json.dump(DEMO_SHARED, f, indent=2)
         print("[Init] Created demo shared.json")
 
+    env_port = (os.getenv("PORT") or "").strip()
+    port = args.port if args.port is not None else (int(env_port) if env_port.isdigit() else None)
+    if port is not None and not (1 <= port <= 65535):
+        print(f"[Startup] Invalid port: {port}. Use a value between 1 and 65535.")
+        sys.exit(1)
+
     if APP_MODE == "server":
         if not os.environ.get("WERKZEUG_RUN_MAIN"):
             merge_thread.start()
-        port = 5001
+        if port is None:
+            port = 5001
         print(f"Starting POPMAP SERVER on port {port}")
 
         public_server_url = os.getenv("PUBLIC_SERVER_URL", "").strip()
@@ -829,7 +845,8 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[Server] Failed to generate connection ID: {e}")
     else:
-        port = 5000
+        if port is None:
+            port = 5000
         print(f"Starting POPMAP CLIENT on port {port}")
 
     print(f"Using TILE_DIR: {TILE_DIR}")
