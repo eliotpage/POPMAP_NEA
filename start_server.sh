@@ -12,12 +12,14 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  -s, --setup-auth        Force reconfiguration of auth secrets"
     echo "  -n, --ngrok             Auto-install and setup ngrok tunnel"
     echo "  -l, --logs <0|1>        0=quiet (default), 1=show HTTP request logs"
+    echo "  -t, --tiles-dir <path>  Path to tile root directory (must contain zoom folders)"
     echo ""
     echo "Examples:"
     echo "  ./start_server.sh                              # Start normally (quiet)"
     echo "  ./start_server.sh -s -n                       # Setup auth and ngrok"
     echo "  ./start_server.sh -l 1                        # Show logs"
     echo "  ./start_server.sh -s -n -l 1 --port 5001      # Full setup with verbose logs"
+    echo "  ./start_server.sh -t /path/to/tiles            # Start with custom tile directory"
     exit 0
 fi
 
@@ -25,6 +27,7 @@ ENV_FILE=".env"
 FORCE_AUTH_SETUP=0
 WANTS_NGROK=0
 LOGS_VALUE=0
+TILES_DIR=""
 FORWARD_ARGS=()
 
 while [ $# -gt 0 ]; do
@@ -47,12 +50,13 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             ;;
-        -t|--tile-dir)
+        -t|--tiles-dir)
             if [ $# -gt 1 ]; then
+                TILES_DIR="$2"
                 FORWARD_ARGS+=("--tile-dir" "$2")
                 shift 2
             else
-                echo "Error: -t/--tile-dir requires a path"
+                echo "Error: -t/--tiles-dir requires a path"
                 exit 1
             fi
             ;;
@@ -200,11 +204,49 @@ ensure_ngrok() {
     return 1
 }
 
+setup_tiles_dir_if_missing() {
+    if [ -n "$TILES_DIR" ]; then
+        return 0
+    fi
+
+    DEFAULT_TILES_DIR="static/tiles"
+    if [ -d "$DEFAULT_TILES_DIR" ]; then
+        echo "[Setup] Using default tiles directory: $DEFAULT_TILES_DIR"
+        TILES_DIR="$DEFAULT_TILES_DIR"
+        FORWARD_ARGS+=("--tile-dir" "$TILES_DIR")
+        return 0
+    fi
+
+    if [ ! -t 0 ]; then
+        echo "[Setup] No tiles directory provided and no interactive terminal available."
+        echo "[Setup] Provide the tiles directory using: -t <path> or --tiles-dir <path>"
+        return 1
+    fi
+
+    echo "[Setup] Tiles directory configuration"
+    printf "Enter path to tiles root directory (contains zoom folders): "
+    read -r user_tiles_dir
+    
+    if [ -z "$user_tiles_dir" ]; then
+        echo "[Setup] No tiles directory provided. Using default: $DEFAULT_TILES_DIR"
+        TILES_DIR="$DEFAULT_TILES_DIR"
+    else
+        if [ ! -d "$user_tiles_dir" ]; then
+            echo "[Setup] Warning: Directory does not exist: $user_tiles_dir"
+            echo "[Setup] Proceeding anyway - app will handle validation."
+        fi
+        TILES_DIR="$user_tiles_dir"
+    fi
+    
+    FORWARD_ARGS+=("--tile-dir" "$TILES_DIR")
+}
+
 if [ "$WANTS_NGROK" -eq 1 ]; then
     ensure_ngrok || true
 fi
 
 setup_auth_env_if_missing
+setup_tiles_dir_if_missing
 
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."
