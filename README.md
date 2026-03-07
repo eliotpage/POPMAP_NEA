@@ -52,8 +52,10 @@ start_client.bat --uid <connection-id>
 
 Optional flags:
 ```bash
-./start_client.sh --port 5000 --uid <connection-id>
+./start_client.sh --port 5002 --uid <connection-id>
 ```
+
+Recommended backup client port if `5000` is busy: `5002`.
 
 Open in browser:
 1. Client: `http://localhost:5000` (or your `--port`)

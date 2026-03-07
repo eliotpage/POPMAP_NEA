@@ -65,9 +65,9 @@ DEMO_SHARED = [
      "geometry": {"type": "Point", "coordinates": [33.106, 35.106]}}
 ]
 
-DRAWINGS_FILE = os.path.join('data', 'drawings.json')
-SHARED_FILE = os.path.join('data', 'shared.json')
-DEFAULT_TILE_DIR = os.path.join('static', 'tiles')
+DRAWINGS_FILE = os.path.join(os.path.dirname(__file__), 'data', 'drawings.json')
+SHARED_FILE = os.path.join(os.path.dirname(__file__), 'data', 'shared.json')
+DEFAULT_TILE_DIR = os.path.join(os.path.dirname(__file__), 'static', 'tiles')
 TILE_DIR = (args.tile_dir or os.getenv("TILE_DIR", DEFAULT_TILE_DIR)).strip() or DEFAULT_TILE_DIR
 if not os.path.isabs(TILE_DIR):
     TILE_DIR = os.path.abspath(TILE_DIR)
@@ -75,14 +75,15 @@ if not os.path.isdir(TILE_DIR):
     print(f"[Startup] TILE_DIR not found: {TILE_DIR}")
     print("[Startup] Continuing without tile-based cost map; monitor and non-map features remain available.")
     TILE_DIR = None
-DEM_PATH = os.path.join('static', 'output_be.tif')
+DEM_PATH = os.path.join(os.path.dirname(__file__), 'static', 'output_be.tif')
+LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 MERGE_INTERVAL = 10
 
 app = Flask(__name__)
 load_dotenv()
 
 # Ensure logs directory exists for action logging in all modes
-os.makedirs('logs', exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
 
 
 # Action logging helper (available in both modes)
@@ -105,7 +106,7 @@ def log_action(action, result, details="", user_override=None):
         f"details={details}"
     )
     try:
-        with open('logs/actions.log', 'a') as f:
+        with open(os.path.join(LOGS_DIR, 'actions.log'), 'a') as f:
             f.write(log_entry + '\n')
     except Exception as e:
         print(f"Error logging action: {e}")
@@ -146,6 +147,24 @@ else:
 DEFAULT_SERVER_URL = "http://localhost:5001"
 SERVER_URL = os.getenv("SERVER_URL", DEFAULT_SERVER_URL).strip() or DEFAULT_SERVER_URL
 CONNECTION_ID_SECRET = os.getenv("POPMAP_CONNECTION_SECRET", "")
+
+
+def format_upstream_error(response, fallback_label="Server error"):
+    """Normalize upstream API errors into user-friendly messages."""
+    status = response.status_code
+    try:
+        result = response.json()
+        base_error = result.get('error') or result.get('message')
+    except Exception:
+        base_error = None
+
+    if status == 401 and "app.github.dev" in SERVER_URL:
+        return (
+            "Authentication server blocked request (401). "
+            "In Codespaces, set port 5001 visibility to Public, then restart server and use a new Connection ID."
+        )
+
+    return base_error or f"{fallback_label} ({status})"
 
 cli_connection_id = (args.uid or args.server_id or "").strip()
 
@@ -246,7 +265,7 @@ dstar = DStarLite(DEM_PATH, tile_dir=TILE_DIR, zoom=11)
 # ============================================================
 
 if APP_MODE == "server":
-    os.makedirs('logs', exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
     
     # Traffic logging middleware
     @app.before_request
@@ -286,7 +305,7 @@ if APP_MODE == "server":
                 f"ua=\"{ua}\""
             )
             try:
-                with open('logs/traffic.log', 'a') as f:
+                with open(os.path.join(LOGS_DIR, 'traffic.log'), 'a') as f:
                     f.write(log_entry + '\n')
             except Exception as e:
                 print(f"Error logging traffic: {e}")
@@ -383,11 +402,23 @@ def map_page():
 @app.route('/tiles/<int:z>/<int:x>/<int:y>.png')
 def tile_file(z, x, y):
     """Serve tiles locally when present, otherwise proxy from server in client mode."""
+    MAX_NATIVE_ZOOM = 15
+    
+    # If requesting zoom > 15, scale down to zoom 15 coordinates
+    if z > MAX_NATIVE_ZOOM:
+        scale_factor = 2 ** (z - MAX_NATIVE_ZOOM)
+        z_native = MAX_NATIVE_ZOOM
+        x_native = x // scale_factor
+        y_native = y // scale_factor
+        print(f"[Tile Overzoom] z={z} x={x} y={y} -> z={z_native} x={x_native} y={y_native}")
+        z, x, y = z_native, x_native, y_native
+    
     tile_name = f"{y}.png"
 
     if TILE_DIR:
         tile_folder = os.path.join(TILE_DIR, str(z), str(x))
         local_tile = os.path.join(tile_folder, tile_name)
+        print(f"[Tile Request] z={z} x={x} y={y} path={local_tile} exists={os.path.exists(local_tile)}")
         if os.path.exists(local_tile):
             return send_from_directory(tile_folder, tile_name)
 
@@ -400,13 +431,14 @@ def tile_file(z, x, y):
                 response.headers["Cache-Control"] = upstream.headers.get("Cache-Control", "public, max-age=3600")
                 return response
             if upstream.status_code == 404:
-                return jsonify(error="Tile not found"), 404
-            return jsonify(error="Server tile fetch failed"), 502
+                return Response(status=404)
+            return Response(status=502)
         except Exception as e:
             print(f"[Tile Proxy Error] target={target} error={e}")
-            return jsonify(error="Could not fetch tile from server"), 502
+            return Response(status=502)
 
-    return jsonify(error="Tiles are not configured"), 404
+    print(f"[Tile Not Found] z={z} x={x} y={y} - tile file does not exist")
+    return Response(status=404)
 
 # ============================================================
 # AUTHENTICATION ROUTES
@@ -428,7 +460,8 @@ def request_otp():
                 result = response.json()
                 return jsonify(success=result.get('success', False), error=result.get('error', ''))
             else:
-                return jsonify(success=False, error="Server error")
+                upstream_error = format_upstream_error(response, "Server error")
+                return jsonify(success=False, error=upstream_error)
         except Exception as e:
             print(f"[Request OTP Error] target={SERVER_URL}/send_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
@@ -472,7 +505,8 @@ def login_verify():
                 else:
                     return jsonify(success=False, error=result.get('error', 'Invalid OTP'))
             else:
-                return jsonify(success=False, error="Server error")
+                upstream_error = format_upstream_error(response, "Server error")
+                return jsonify(success=False, error=upstream_error)
         except Exception as e:
             print(f"[Login Verify Error] target={SERVER_URL}/verify_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
@@ -798,7 +832,7 @@ def tile_bounds():
     center_lon = tile2lon(center_x, zoom)
     center_lat = tile2lat(center_y, zoom)
 
-    return jsonify(bounds=[[south, west], [north, east]], center=[center_lat, center_lon], minZoom=11, maxZoom=16)
+    return jsonify(bounds=[[south, west], [north, east]], center=[center_lat, center_lon], minZoom=2, maxZoom=18)
 
 # ============================================================
 # SERVER MODE: MONITORING ROUTES
@@ -812,14 +846,15 @@ if APP_MODE == "server":
     @app.route('/monitor/data')
     def monitor_data():
         try:
-            traffic_log = os.path.join('logs', 'traffic.log')
-            actions_log = os.path.join('logs', 'actions.log')
+            traffic_log = os.path.join(LOGS_DIR, 'traffic.log')
+            actions_log = os.path.join(LOGS_DIR, 'actions.log')
             
             traffic_entries = []
             actions_entries = []
             total_traffic = 0
             total_actions = 0
             active_ips = set()
+            active_clients = {}  # ip -> {last_seen, user, path}
             
             # Get current time and 5 minutes ago
             now = datetime.now()
@@ -832,7 +867,7 @@ if APP_MODE == "server":
                     recent_lines = lines[-100:]
                     traffic_entries = [line.strip() for line in recent_lines if line.strip()]
                     
-                    # Count active sessions from last 5 minutes
+                    # Count active sessions from last 5 minutes and track details
                     for line in lines:
                         try:
                             # Extract timestamp: format is "YYYY-MM-DD HH:MM:SS,mmm"
@@ -842,7 +877,19 @@ if APP_MODE == "server":
                             if entry_time >= five_min_ago:
                                 ip_match = re.search(r'ip=([\d\.]+)', line)
                                 if ip_match:
-                                    active_ips.add(ip_match.group(1))
+                                    ip = ip_match.group(1)
+                                    active_ips.add(ip)
+                                    
+                                    # Track detailed info for each IP
+                                    if ip not in active_clients or entry_time > active_clients[ip]['last_seen']:
+                                        path_match = re.search(r'path=([^\s]+)', line)
+                                        method_match = re.search(r'method=(\w+)', line)
+                                        
+                                        active_clients[ip] = {
+                                            'last_seen': entry_time,
+                                            'last_path': path_match.group(1) if path_match else '-',
+                                            'last_method': method_match.group(1) if method_match else '-'
+                                        }
                         except Exception:
                             pass
             
@@ -853,12 +900,26 @@ if APP_MODE == "server":
                     recent_lines = lines[-50:]
                     actions_entries = [line.strip() for line in recent_lines if line.strip()]
             
+            # Convert active_clients dict to list for JSON response
+            active_clients_list = [
+                {
+                    'ip': ip,
+                    'last_seen': info['last_seen'].strftime('%Y-%m-%d %H:%M:%S'),
+                    'last_path': info['last_path'],
+                    'last_method': info['last_method']
+                }
+                for ip, info in active_clients.items()
+            ]
+            # Sort by most recent first
+            active_clients_list.sort(key=lambda x: x['last_seen'], reverse=True)
+            
             return jsonify({
                 'traffic': traffic_entries,
                 'actions': actions_entries,
                 'total_traffic': total_traffic,
                 'total_actions': total_actions,
-                'active_sessions': len(active_ips)
+                'active_sessions': len(active_ips),
+                'active_clients': active_clients_list
             })
         except Exception as e:
             return jsonify({'error': str(e)}), 500
@@ -868,8 +929,8 @@ if APP_MODE == "server":
         """Truncate traffic/actions logs so clearing the dashboard is persistent."""
         try:
             log_type = request.args.get('type', 'all')
-            traffic_log = os.path.join('logs', 'traffic.log')
-            actions_log = os.path.join('logs', 'actions.log')
+            traffic_log = os.path.join(LOGS_DIR, 'traffic.log')
+            actions_log = os.path.join(LOGS_DIR, 'actions.log')
 
             cleared = []
             if log_type in ('all', 'traffic'):
@@ -888,8 +949,8 @@ if APP_MODE == "server":
 # ============================================================
 
 if __name__ == "__main__":
-    os.makedirs('static', exist_ok=True)
-    os.makedirs('data', exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), 'static'), exist_ok=True)
+    os.makedirs(os.path.join(os.path.dirname(__file__), 'data'), exist_ok=True)
 
     if not os.path.exists(DRAWINGS_FILE):
         with open(DRAWINGS_FILE, 'w') as f:
@@ -928,6 +989,13 @@ if __name__ == "__main__":
             port = 5000
         print(f"Starting POPMAP CLIENT on port {port}")
 
-    print(f"Using TILE_DIR: {TILE_DIR}")
+    if TILE_DIR:
+        print(f"[Startup] TILE_DIR: {TILE_DIR}")
+        print(f"[Startup] TILE_DIR exists: {os.path.isdir(TILE_DIR)}")
+        if os.path.isdir(TILE_DIR):
+            zoom_dirs = [d for d in os.listdir(TILE_DIR) if os.path.isdir(os.path.join(TILE_DIR, d)) and d.isdigit()]
+            print(f"[Startup] Available zoom levels: {sorted([int(z) for z in zoom_dirs])}")
+    else:
+        print(f"[Startup] TILE_DIR: None (tiles disabled)")
 
     app.run(debug=False, port=port, host='0.0.0.0')

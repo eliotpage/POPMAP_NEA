@@ -11,6 +11,9 @@
             margin: 0;
             font-family: "Segoe UI", sans-serif;
             background: #f4f4f4;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         /* Header */
@@ -22,6 +25,7 @@
             padding: 10px 20px;
             background: #2c3e50;
             color: white;
+            flex-shrink: 0;
         }
 
         #header-container h1 {
@@ -38,6 +42,7 @@
             padding: 15px 20px;
             background: #f4f4f4;
             border-bottom: 1px solid #ccc;
+            flex-shrink: 0;
         }
 
         .stat-card {
@@ -63,10 +68,12 @@
         /* Container */
         .container {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: 2fr 1fr 1fr;
             gap: 15px;
             padding: 15px 20px;
-            height: calc(100vh - 200px);
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .panel {
@@ -75,6 +82,8 @@
             border: 1px solid #ccc;
             display: flex;
             flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .panel h2 {
@@ -114,6 +123,7 @@
             font-size: 12px;
             line-height: 1.5;
             background: #fafafa;
+            min-height: 0;
         }
 
         .log-entry {
@@ -269,6 +279,36 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #999;
         }
+
+        .client-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            background: white;
+        }
+
+        .client-item:hover {
+            background: #f9f9f9;
+        }
+
+        .client-ip {
+            font-weight: 600;
+            color: #e74c3c;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+
+        .client-details {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .client-activity {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            font-family: 'Courier New', monospace;
+        }
     </style>
 </head>
 
@@ -313,12 +353,34 @@
             </div>
             <div class="log-container" id="actions-log"></div>
         </div>
+
+        <div class="panel">
+            <h2>Active Clients</h2>
+            <div class="controls">
+                <span style="color: #666; font-size: 12px; padding: 6px 0;">Last 5 minutes</span>
+            </div>
+            <div class="log-container" id="active-clients"></div>
+        </div>
     </div>
     
     <script>
         let isPaused = false;
         let previousTrafficCount = 0;
         let previousActionsCount = 0;
+        
+        function getTimeAgo(timestamp) {
+            const now = new Date();
+            const then = new Date(timestamp);
+            const diffSeconds = Math.floor((now - then) / 1000);
+            
+            if (diffSeconds < 10) return 'just now';
+            if (diffSeconds < 60) return `${diffSeconds}s ago`;
+            const diffMinutes = Math.floor(diffSeconds / 60);
+            if (diffMinutes < 60) return `${diffMinutes}m ago`;
+            const diffHours = Math.floor(diffMinutes / 60);
+            if (diffHours < 24) return `${diffHours}h ago`;
+            return timestamp;
+        }
         
         function togglePause() {
             isPaused = !isPaused;
@@ -501,6 +563,23 @@
                 }
                 
                 previousActionsCount = data.actions.length;
+                
+                // Update active clients
+                const clientsContainer = document.getElementById('active-clients');
+                if (data.active_clients && data.active_clients.length > 0) {
+                    clientsContainer.innerHTML = data.active_clients.map(client => {
+                        const timeAgo = getTimeAgo(client.last_seen);
+                        return `
+                            <div class="client-item">
+                                <div class="client-ip">${client.ip}</div>
+                                <div class="client-details">Last seen: ${timeAgo}</div>
+                                <div class="client-activity">${client.last_method} ${client.last_path}</div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    clientsContainer.innerHTML = '<div style="padding: 15px; color: #999; text-align: center;">No active clients</div>';
+                }
                 
             } catch (error) {
                 console.error('Error fetching monitor data:', error);
