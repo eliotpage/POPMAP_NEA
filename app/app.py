@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import hashlib
 import threading
 import time
 import re
@@ -358,6 +359,7 @@ def detect_local_ip():
         sock.close()
 
 dstar = DStarLite(DEM_PATH, tile_dir=TILE_DIR, zoom=11)
+HOSTILE_CACHE_KEY = None
 
 if APP_MODE == "server":
     os.makedirs(LOGS_DIR, exist_ok=True)
@@ -602,7 +604,8 @@ def request_otp():
                 result = response.json()
                 return jsonify(success=result.get('success', False), error=result.get('error', ''))
             else:
-                return jsonify(success=False, error="Server error")
+                upstream_error = format_upstream_error(response, "Server error")
+                return jsonify(success=False, error=upstream_error)
         except Exception as e:
             return jsonify(success=False, error="Could not reach authentication server")
     else:
@@ -679,7 +682,7 @@ def send_otp():
         return jsonify(success=True)
     except Exception as e:
         log_action('send_otp', 'error', f'user={user} error={str(e)[:50]}')
-        return jsonify(success=False, error="Failed to send OTP")
+        return jsonify(success=False, error=f"Failed to send OTP ({type(e).__name__})")
 
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp_endpoint():
@@ -857,12 +860,17 @@ def compute_path():
         if APP_MODE == "client":
             target = f"{SERVER_URL.rstrip('/')}/compute_path"
             try:
-                upstream = requests.get(target, params=request.args, timeout=30)
+                # Pathfinding with hostile-zone processing can legitimately take longer.
+                upstream = requests.get(target, params=request.args, timeout=120)
                 try:
                     body = upstream.json()
                 except Exception:
                     body = {"error": format_upstream_error(upstream, "Server error")}
                 return jsonify(body), upstream.status_code
+            except requests.exceptions.Timeout:
+                return jsonify(
+                    error="Pathfinding timed out while processing hostile zones. Try a smaller hostile area, lower clearance, or retry."
+                ), 504
             except Exception:
                 return jsonify(error="Could not reach server for compute_path"), 502
 
@@ -878,8 +886,17 @@ def compute_path():
             drawings = json.load(f)
 
         hostile_features = [f for f in drawings if f['properties'].get('hostile') and not f['properties'].get('deleted')]
+        hostile_payload = json.dumps(hostile_features, sort_keys=True, separators=(",", ":"))
+        hostile_cache_key = hashlib.sha256(hostile_payload.encode('utf-8')).hexdigest()
+
+        global HOSTILE_CACHE_KEY
         print(f"Pathfinding: {len(drawings)} total drawings, {len(hostile_features)} marked as hostile")
-        dstar.apply_hostile_zones(hostile_features, influence_radius_m=100)
+        if hostile_cache_key != HOSTILE_CACHE_KEY:
+            print("[Hostile Zones] Changes detected, rebuilding hostile mask and influence map...")
+            dstar.apply_hostile_zones(hostile_features, influence_radius_m=100)
+            HOSTILE_CACHE_KEY = hostile_cache_key
+        else:
+            print("[Hostile Zones] Reusing cached hostile mask/influence map")
 
         start_r, start_c = dstar.latlon_to_index(start_lat, start_lon)
         goal_r, goal_c = dstar.latlon_to_index(goal_lat, goal_lon)

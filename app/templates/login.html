@@ -123,10 +123,10 @@ async function requestOTP() {
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({user: contact})
         });
-        const data = await res.json();
+        const data = await parseApiResponse(res);
         if(data.success){ showAlert("OTP sent! Check your email.", 'success'); document.getElementById('otp').focus(); }
         else { showAlert("Error sending OTP: " + data.error); }
-    } catch(err){ showAlert("Network error: " + err); }
+    } catch(err){ showAlert("Network error: " + (err?.message || String(err))); }
 }
 
 async function verifyOTP() {
@@ -140,10 +140,28 @@ async function verifyOTP() {
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({user: contact, otp: otp})
         });
-        const data = await res.json();
+        const data = await parseApiResponse(res);
         if(data.success){ showAlert("Login successful!", 'success'); window.location.href = '/map'; }
         else { showAlert(data.error); }
-    } catch(err){ showAlert("Network error: " + err); }
+    } catch(err){ showAlert("Network error: " + (err?.message || String(err))); }
+}
+
+async function parseApiResponse(res) {
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+
+    if (contentType.includes('application/json')) {
+        return await res.json();
+    }
+
+    const rawText = await res.text();
+    try {
+        return JSON.parse(rawText);
+    } catch (_) {
+        return {
+            success: false,
+            error: rawText ? rawText.slice(0, 200) : `Unexpected response format (${res.status})`
+        };
+    }
 }
 
 document.getElementById('contact').addEventListener('keydown', e=>{
