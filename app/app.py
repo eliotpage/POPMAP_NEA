@@ -38,6 +38,7 @@ parser.add_argument('--port', type=int, help='Port to bind this app to (default:
 parser.add_argument('--tile-dir', dest='tile_dir', type=str, help='Path to tile root directory (must contain zoom folders)')
 parser.add_argument('--uid', type=str, help='Connection ID for client mode (alias for SERVER_ID)')
 parser.add_argument('--server-id', dest='server_id', type=str, help='Connection ID for client mode (same as --uid)')
+parser.add_argument('--public', action='store_true', help='Create public tunnel via ngrok for remote connections (server mode only)')
 args = parser.parse_args()
 
 # Determine app mode from environment variable or CLI flag
@@ -142,7 +143,8 @@ else:
     app.secret_key = os.getenv("SECRET_KEY", "client-secret-key-change-in-production")
     mail = None
 
-SERVER_URL = os.getenv("SERVER_URL", "http://localhost")
+DEFAULT_SERVER_URL = "http://localhost:5001"
+SERVER_URL = os.getenv("SERVER_URL", DEFAULT_SERVER_URL).strip() or DEFAULT_SERVER_URL
 CONNECTION_ID_SECRET = os.getenv("POPMAP_CONNECTION_SECRET", "")
 
 cli_connection_id = (args.uid or args.server_id or "").strip()
@@ -161,6 +163,68 @@ if APP_MODE == "client":
             print(f"[Client] Invalid SERVER_ID: {e}")
             print("[Client] Startup aborted. Enter a valid Connection ID.")
             sys.exit(1)
+    elif SERVER_URL in ("http://localhost", "https://localhost"):
+        # Backward-compatibility: old defaults without a port cannot reach the auth server.
+        SERVER_URL = f"{SERVER_URL}:5001"
+        print(f"[Client] Normalized SERVER_URL to {SERVER_URL}")
+
+
+def detect_public_url(port, use_ngrok=False):
+    """Detect server's public URL for Connection IDs.
+    
+    Precedence:
+    1. PUBLIC_SERVER_URL environment variable (explicit override)
+    2. GitHub Codespaces public URL (auto-detected)
+    3. ngrok tunnel (if --public flag set and ngrok running)
+    4. Local IP (for same-network connections)
+    """
+    explicit_url = os.getenv("PUBLIC_SERVER_URL", "").strip()
+    if explicit_url:
+        return explicit_url
+    
+    # GitHub Codespaces detection
+    if os.getenv("CODESPACES") == "true":
+        codespace_name = os.getenv("CODESPACE_NAME", "").strip()
+        codespaces_domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "preview.app.github.dev").strip()
+        if codespace_name:
+            return f"https://{codespace_name}-{port}.{codespaces_domain}"
+    
+    # ngrok tunnel detection
+    if use_ngrok:
+        ngrok_url = detect_ngrok_tunnel()
+        if ngrok_url:
+            return ngrok_url
+    
+    # Local network fallback
+    return f"http://{detect_local_ip()}:{port}"
+
+
+def detect_ngrok_tunnel():
+    """Try to get ngrok tunnel URL from ngrok API (assumes ngrok is running).
+    
+    ngrok typically exposes its API on http://127.0.0.1:4040 by default.
+    """
+    try:
+        import json
+        import urllib.request
+        
+        # Query ngrok's local API
+        with urllib.request.urlopen('http://127.0.0.1:4040/api/tunnels', timeout=2) as res:
+            data = json.loads(res.read().decode())
+            tunnels = data.get('tunnels', [])
+            
+            # Find the first http/https tunnel (prefer https)
+            for tunnel in tunnels:
+                if tunnel.get('proto') in ('http', 'https'):
+                    public_url = tunnel.get('public_url')
+                    if public_url:
+                        print(f"[Server] Detected ngrok tunnel: {public_url}")
+                        return public_url
+    except Exception as e:
+        print(f"[Server] ngrok not detected on localhost:4040 (is it running? `ngrok http 5001`)")
+        print(f"[Server] Fallback to local IP detection.")
+    
+    return None
 
 
 def detect_local_ip():
@@ -349,7 +413,7 @@ def request_otp():
             else:
                 return jsonify(success=False, error="Server error")
         except Exception as e:
-            print(f"[Request OTP Error] {e}")
+            print(f"[Request OTP Error] target={SERVER_URL}/send_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
     else:
         # Server mode - send OTP directly
@@ -393,7 +457,7 @@ def login_verify():
             else:
                 return jsonify(success=False, error="Server error")
         except Exception as e:
-            print(f"[Login Verify Error] {e}")
+            print(f"[Login Verify Error] target={SERVER_URL}/verify_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
     else:
         # Server mode - verify OTP directly
@@ -833,9 +897,7 @@ if __name__ == "__main__":
             port = 5001
         print(f"Starting POPMAP SERVER on port {port}")
 
-        public_server_url = os.getenv("PUBLIC_SERVER_URL", "").strip()
-        if not public_server_url:
-            public_server_url = f"http://{detect_local_ip()}:{port}"
+        public_server_url = detect_public_url(port, use_ngrok=args.public)
 
         try:
             connection_id = generate_connection_id(public_server_url, CONNECTION_ID_SECRET or None)

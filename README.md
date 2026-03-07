@@ -1,267 +1,111 @@
-# POPMAP - Point Of Presence Mapping & Analysis Platform
+# POPMAP - Unified Tactical Mapping
 
-A unified tactical mapping application with pathfinding, hostile zone avoidance, and real-time collaboration features.
-
-**POPMAP is now a unified application that runs in CLIENT or SERVER mode from the same codebase.**
+Collaborative real-time mapping with pathfinding and hostile zone avoidance.
 
 ---
 
-## Quick Start
+## Install
 
-See [README_UNIFIED.md](README_UNIFIED.md) for complete documentation.
-
-### Start CLIENT Mode (Default)
+**Clone the repo:**
 ```bash
-./start_client.sh              # Linux/macOS
-# or
-start_client.bat              # Windows
-
-# Optional flags
-./start_client.sh --port 5000 --tile-dir /path/to/tiles --uid <connection-id>
+git clone https://github.com/eliotpage/POPMAP_NEA.git
+cd POPMAP_NEA
 ```
 
-Use `--uid` (or `--server-id`) with the **Connection ID** printed by server startup.
-
-**Then open:** http://localhost (port 80 via nginx proxy)
-
-### Start SERVER Mode
+**Set up Python environment:**
 ```bash
-./start_server.sh              # Linux/macOS
-# or  
-start_server.bat              # Windows
+cd app
+python -m venv venv
 
-# Optional flags
+# Linux/macOS
+source venv/bin/activate
+
+# Windows
+venv\Scripts\activate.bat
+```
+
+**Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Run Server
+
+**Start on default port 5001:**
+```bash
+./start_server.sh
+```
+
+**Or with flags:**
+```bash
 ./start_server.sh --port 5001 --tile-dir /path/to/tiles
 ```
 
-On startup, the server prints:
-- `Connection URL` (for direct debugging)
-- `Connection ID` (share this with clients)
+**For public access (local PC):**
+1. Install ngrok: `brew install ngrok` (or download from ngrok.com)
+2. In another terminal: `ngrok http 5001`
+3. Run server: `./start_server.sh --public`
 
-For cross-device/LAN use, set this before starting server:
-```bash
-PUBLIC_SERVER_URL=http://<server-lan-ip>:5001
+Server prints:
+```
+[Server] Connection URL: https://...
+[Server] Connection ID: 76317c68...
 ```
 
-Optional hardening (must match on server and clients):
-```bash
-POPMAP_CONNECTION_SECRET=shared-connection-secret
-```
-
-**Then open:** http://localhost:5001 (or /monitor for dashboard)
+Share the Connection ID with clients.
 
 ---
 
-## Prerequisites
-- Python 3.8 or newer
-- ~500MB disk space for map tiles and terrain data
+## Run Client
 
-## Installation
+**Start on default port 5000:**
+```bash
+./start_client.sh
+```
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/eliotpage/POPMAP_NEA.git
-   cd POPMAP_NEA
-   ```
+**Or with connection ID:**
+```bash
+./start_client.sh --port 5000 --tile-dir /path/to/tiles --uid <connection-id>
+```
 
-2. **Create a Python environment:**
-   ```bash
-   cd app
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate.bat
-   ```
-
-3. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Configure environment (`.env` in `app/` directory):**
-   ```bash
-   SECRET_KEY=your-secret-key-here
-   SERVER_URL=http://localhost:5001
-   ```
-
-    `SERVER_URL` is now optional when you use server-issued Connection IDs.
-
-5. **Run the application:**
-   ```bash
-   python app.py
-   ```
-
-6. **Open in your browser:**
-   - Local: `http://localhost`
-   - Remote: `http://your-server.com`
-
-7. **Login** with your email - you'll receive an OTP code to authenticate
+Then open http://localhost:5000 (or whatever port you set).
 
 ---
 
-## ⚠️ CRITICAL: Get Map Data From Administrator
+## Email Setup (Server Only)
 
-The downloaded app does **NOT include** map tiles or terrain data (they're too large - ~500MB).
-
-**You MUST request these files from your administrator before the app will work:**
-
-1. **Map Tiles** (~391MB) - offline satellite/terrain maps
-2. **DEM File** (output_be.tif, ~18MB) - elevation data for pathfinding
-
-### Setting Up the Map Files
-
-Once you have the files from your administrator:
-
-1. **Extract tiles** to: `client/static/tiles/`
-   ```
-   tiles/
-   ├── 10/
-   ├── 11/
-   ├── 12/
-   └── ... (zoom levels 2-17)
-   ```
-
-2. **Place DEM** at: `client/static/output_be.tif`
-
-### Verify Before Running
-
-```bash
-# Check tiles exist
-ls client/static/tiles/
-# Should show: 10  11  12  13  14  15  16  17  etc.
-
-# Check DEM exists (should be ~18MB)
-ls -lh client/static/output_be.tif
+For OTP email authentication, add to `app/.env`:
+```
+SECRET_KEY=your-secret-key
+MAIL_USERNAME=your-gmail@gmail.com
+MAIL_PASSWORD=your-app-password
 ```
 
-### Without These Files
-❌ Maps won't display  
-❌ Pathfinding won't work  
-❌ App won't function properly
+Or set environment variables before running:
+```bash
+export SECRET_KEY=your-secret-key
+export MAIL_USERNAME=your-gmail@gmail.com
+export MAIL_PASSWORD=your-app-password
+./start_server.sh
+```
 
-**Contact your POPMAP administrator to get these files.**
+Without email config, server runs in demo mode (no OTP emails sent).
 
 ---
 
-## Project Structure
+## Map Tiles & Terrain Data
 
-This project is organized into two separate deployments:
+Map tiles and elevation data are not included (too large).
 
-### `/server` - Admin Server
-Full-featured server with authentication and email capabilities.
+**If you need map functionality:**
+1. Get tiles and `output_be.tif` from your administrator
+2. Place tiles in: `app/static/tiles/`
+3. Place DEM file in: `app/static/output_be.tif`
+4. Run with: `./start_server.sh --tile-dir /path/to/tiles`
 
-**Key Features:**
-- Manages OTP authentication
-- Sends emails via configured SMTP
-- Server-side cryptography
-- API endpoints for client applications
-- Runs on port 5001
-
-[See Server Documentation](./server/README.md)
-
-### `/client` - Standalone Client
-Lightweight, downloadable client for end users that authenticates via the server.
-
-**Key Features:**
-- No email configuration needed
-- No local cryptography setup
-- All authentication delegated to server
-- Same mapping and pathfinding features
-- Serves via nginx on port 80 (proxied to :5000 internally)
-
-[See Client Documentation](./client/README.md)
-
-## 🛠️ For Developers & Administrators
-
-### Running Locally (Testing Both Apps)
-
-**Terminal 1 - Run the Server:**
-```bash
-cd server
-python -m venv venv
-source venv/bin/activate  # or: venv\Scripts\activate.bat on Windows
-pip install -r requirements.txt
-python app.py  # Server runs on port 5001
-```
-
-**Terminal 2 - Run the Client:**
-```bash
-cd client
-python -m venv venv
-source venv/bin/activate  # or: venv\Scripts\activate.bat on Windows
-pip install -r requirements.txt
-python app.py  # Client listens on :5000, exposed via nginx on :80
-```
-
-Then open http://localhost in your browser (port 80).
-
-### Production Deployment (with Nginx)
-
-Both apps are configured to run on port 80 when deployed behind nginx as a reverse proxy.
-
-See detailed nginx configuration in the section below.
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────┐
-│                 NGINX (Port 80)                      │
-│         (Reverse Proxy / Load Balancer)              │
-└────────┬────────────────────────────────┬────────────┘
-         │                                │
-         ↓                                ↓
-    ┌─────────────┐              ┌─────────────┐
-    │   Server    │              │   Client    │
-    │ (Port 80)   │              │ (Port 80)   │
-    │ :5001 →     │              │ :5000 →     │
-    │ Admin       │              │ Users       │
-    └─────────────┘              └─────────────┘
-
-User Browser → nginx:80 → Routes to Server or Client App
-```
-
-## Nginx Configuration
-
-### Single Machine Setup (both apps on same host)
-
-Create `/etc/nginx/sites-available/popmap.conf`:
-
-```nginx
-# Server (Admin)
-upstream popmap_server {
-    server localhost:5001;
-}
-
-# Client (Users)
-upstream popmap_client {
-    server localhost:5000;
-}
-
-server {
-    listen 80 default_server;
-    server_name _;
-
-    # Route /admin to server
-    location /admin {
-        proxy_pass http://popmap_server;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Route everything else to client (/) 
-    location / {
-        proxy_pass http://popmap_client;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Separate Machines Setup
-
-**Server Machine** (`/etc/nginx/sites-available/popmap-server.conf`):
+Server runs fine without tiles—just no map display or pathfinding.
 ```nginx
 upstream popmap_server {
     server localhost:5001;

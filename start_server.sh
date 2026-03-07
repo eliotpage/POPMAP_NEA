@@ -21,8 +21,12 @@ pip install -q -r requirements.txt
 #   export SECRET_KEY=your-secret-key
 #   export MAIL_USERNAME=your-gmail@gmail.com
 #   export MAIL_PASSWORD=your-app-password
-# Optional for cross-device clients:
-#   export PUBLIC_SERVER_URL=http://<your-lan-ip>:5001
+# Optional for public accessibility (use ngrok for local PC):
+#   1. Install ngrok: brew install ngrok (or download from ngrok.com)
+#   2. In a separate terminal: ngrok http 5001
+#   3. Run server with: ./start_server.sh --public
+# Optional for explicit public URL override:
+#   export PUBLIC_SERVER_URL=http://<your-public-ip>:5001
 # Optional to customize connection ID signing (must match on clients):
 #   export POPMAP_CONNECTION_SECRET=shared-connection-secret
 # Optional to customize tile directory when using map-based routing:
@@ -30,6 +34,7 @@ pip install -q -r requirements.txt
 # Optional startup flags:
 #   --port <server-port>
 #   --tile-dir /path/to/tiles
+#   --public                 (use ngrok tunnel for public access)
 # Server startup will print a generated Connection ID to share with clients.
 export APP_MODE=server
 

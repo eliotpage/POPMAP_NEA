@@ -24,8 +24,12 @@ REM Optional environment variables for email functionality:
 REM   set SECRET_KEY=your-secret-key
 REM   set MAIL_USERNAME=your-gmail@gmail.com
 REM   set MAIL_PASSWORD=your-app-password
-REM Optional for cross-device clients:
-REM   set PUBLIC_SERVER_URL=http://<your-lan-ip>:5001
+REM Optional for public accessibility (use ngrok for local PC):
+REM   1. Install ngrok from https://ngrok.com/download
+REM   2. In a separate terminal: ngrok http 5001
+REM   3. Run server with: start_server.bat --public
+REM Optional for explicit public URL override:
+REM   set PUBLIC_SERVER_URL=http://<your-public-ip>:5001
 REM Optional to customize connection ID signing (must match on clients):
 REM   set POPMAP_CONNECTION_SECRET=shared-connection-secret
 REM Optional to customize tile directory when using map-based routing:
@@ -33,6 +37,7 @@ REM   set TILE_DIR=C:\path\to\tiles
 REM Optional startup flags:
 REM   --port <server-port>
 REM   --tile-dir C:\path\to\tiles
+REM   --public                 (use ngrok tunnel for public access)
 REM Server startup will print a generated Connection ID to share with clients.
 set APP_MODE=server
 %PYTHON_CMD% app.py --server %*
