@@ -9,13 +9,37 @@ if /I "%~1"=="-h" goto :help
 
 set "FORCE_AUTH_SETUP=0"
 set "WANTS_NGROK=0"
+set "LOGS_VALUE=0"
+set "LOOKING_FOR_LOGS_VALUE=0"
+set "LOOKING_FOR_TILE_VALUE=0"
 set "FORWARD_ARGS="
+
 for %%A in (%*) do (
-    set "ARG=%%~A"
-    if /I "!ARG!"=="--setup-auth" (
+    if !LOOKING_FOR_LOGS_VALUE! equ 1 (
+        set "LOGS_VALUE=%%~A"
+        set "LOOKING_FOR_LOGS_VALUE=0"
+    ) else if !LOOKING_FOR_TILE_VALUE! equ 1 (
+        set "FORWARD_ARGS=!FORWARD_ARGS! --tile-dir %%~A"
+        set "LOOKING_FOR_TILE_VALUE=0"
+    ) else if /I "%%~A"=="-s" (
         set "FORCE_AUTH_SETUP=1"
+    ) else if /I "%%~A"=="--setup-auth" (
+        set "FORCE_AUTH_SETUP=1"
+    ) else if /I "%%~A"=="-n" (
+        set "WANTS_NGROK=1"
+        set "FORWARD_ARGS=!FORWARD_ARGS! --ngrok"
+    ) else if /I "%%~A"=="--ngrok" (
+        set "WANTS_NGROK=1"
+        set "FORWARD_ARGS=!FORWARD_ARGS! --ngrok"
+    ) else if /I "%%~A"=="-l" (
+        set "LOOKING_FOR_LOGS_VALUE=1"
+    ) else if /I "%%~A"=="--logs" (
+        set "LOOKING_FOR_LOGS_VALUE=1"
+    ) else if /I "%%~A"=="-t" (
+        set "LOOKING_FOR_TILE_VALUE=1"
+    ) else if /I "%%~A"=="--tile-dir" (
+        set "LOOKING_FOR_TILE_VALUE=1"
     ) else (
-        if /I "!ARG!"=="--ngrok" set "WANTS_NGROK=1"
         set "FORWARD_ARGS=!FORWARD_ARGS! %%~A"
     )
 )
@@ -128,9 +152,30 @@ set PIP_DISABLE_PIP_VERSION_CHECK=1
 pip install -q -r requirements.txt
 
 set APP_MODE=server
+
+if !LOGS_VALUE! equ 1 (
+    set QUIET_HTTP_LOGS=0
+) else (
+    set QUIET_HTTP_LOGS=1
+)
+
 %PYTHON_CMD% app.py --server !FORWARD_ARGS!
 goto :eof
 
 :help
 echo POPMAP server launcher
-echo Usage: start_server.bat [--setup-auth] [--ngrok] [--port ^<server-port^>] [--tile-dir ^<path^>]
+echo Usage: start_server.bat [options] [--port ^<port^>] [--tile-dir ^<path^>]
+echo.
+echo Options:
+echo   -h, --help              Show this help message
+echo   -s, --setup-auth        Force reconfiguration of auth secrets
+echo   -n, --ngrok             Auto-install and setup ngrok tunnel
+echo   -l, --logs ^<0^|1^>       0=quiet (default), 1=show HTTP request logs
+echo   -t, --tile-dir ^<path^>   Path to tile directory
+echo.
+echo Examples:
+echo   start_server.bat                        - Start normally (quiet)
+echo   start_server.bat -s -n                  - Setup auth and ngrok
+echo   start_server.bat -l 1                   - Show logs
+echo   start_server.bat -s -n -l 1 --port 5001 - Full setup with verbose logs
+exit /b 0

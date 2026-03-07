@@ -38,31 +38,33 @@ Auth setup during server startup:
 3. You are prompted for `MAIL_USERNAME` and `MAIL_PASSWORD` (optional, needed for OTP email).
 4. Values are saved to `app/.env` for future runs.
 
-Optional flags:
+Common server usage:
 ```bash
-./start_server.sh --port 5001 --tile-dir /path/to/tiles --ngrok
+# Start normally (quiet)
+./start_server.sh
+
+# Setup auth and ngrok (first time or reconfiguring)
+./start_server.sh -s -n
+
+# Show verbose HTTP logs
+./start_server.sh -l 1
+
+# Custom tile directory and port with verbose logs
+./start_server.sh -t /path/to/tiles --port 5001 -l 1
+
+# Full first-time setup with ngrok and logs
+./start_server.sh -s -n -l 1
 ```
 
-Force auth reconfiguration:
-```bash
-./start_server.sh --setup-auth
-```
+Server flag reference:
 
-First-time remote setup (recommended):
-```bash
-./start_server.sh --setup-auth --ngrok
-```
-
-`--setup-auth` behavior:
-1. Forces server setup to re-prompt for auth variables
-2. Regenerates or rewrites `SECRET_KEY` and `POPMAP_CONNECTION_SECRET`
-3. Prompts again for `MAIL_USERNAME` and `MAIL_PASSWORD`
-4. Saves updated values into `app/.env`
-
-`--ngrok` behavior:
-1. `start_server.sh` and `start_server.bat` check whether `ngrok` exists
-2. If missing, setup attempts to install it automatically
-3. The server then starts and creates the tunnel
+| Short | Long | Argument | Description |
+|-------|------|----------|-------------|
+| `-s` | `--setup-auth` | — | Forces re-prompt for auth secrets. Regenerates SECRET_KEY and POPMAP_CONNECTION_SECRET, re-prompts for MAIL_USERNAME/PASSWORD. |
+| `-n` | `--ngrok` | — | Auto-installs ngrok (if missing) and creates tunnel for remote access. |
+| `-l` | `--logs` | `0` or `1` | 0 = quiet (default), 1 = show HTTP request logs (verbose, for debugging). |
+| `-t` | `--tile-dir` | `<path>` | Path to tile directory for map tiles. |
+| `-h` | `--help` | — | Show help message with examples. |
 
 What server prints:
 1. `Connection URL`
@@ -87,12 +89,29 @@ Quick help:
 ./start_client.sh --help
 ```
 
-Optional flags:
+Common client usage:
 ```bash
-./start_client.sh --port 5002 --uid <connection-id>
+# Basic: connect with your connection ID
+./start_client.sh -u abc123def
+
+# Show verbose HTTP logs
+./start_client.sh -u abc123def -l 1
+
+# Use custom port (if 5000 is busy)
+./start_client.sh -u abc123def -p 5002
+
+# All options combined
+./start_client.sh -u abc123def -l 1 -p 5002
 ```
 
-Recommended backup client port if `5000` is busy: `5002`.
+Client flag reference:
+
+| Short | Long | Argument | Description |
+|-------|------|----------|-------------|
+| `-u` | `--uid` | `<id>` | Connection ID from server (required). Get this from server startup output. |
+| `-l` | `--logs` | `0` or `1` | 0 = quiet (default), 1 = show HTTP request logs (verbose, for debugging). |
+| `-p` | `--port` | `<port>` | Port to run client on. Default: 5000. Use 5002 if 5000 is busy. |
+| `-h` | `--help` | — | Show help message with examples. |
 
 Open in browser:
 1. Client: `http://localhost:5000` (or your `--port`)

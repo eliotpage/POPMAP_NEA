@@ -482,6 +482,7 @@
 
             let editableLayers = new L.FeatureGroup().addTo(map);
             let drawings = [];
+            let drawingsDirty = false;
             let lastMarkerClick = null;
             let refreshPaused = false;
             const REFRESH_RATE_KEY = 'refreshRateSec';
@@ -635,6 +636,7 @@
                         layer._hostile = cb.checked;
                         const f = drawings.find(f => f.properties._id === layer._leaflet_id);
                         if (f) f.properties.hostile = layer._hostile;
+                        drawingsDirty = true;
                         saveDrawings();
                     });
                 });
@@ -656,13 +658,17 @@
                         layer._hostile = cb.checked;
                         const f = drawings.find(f => f.properties._id === layer._leaflet_id);
                         if (f) f.properties.hostile = layer._hostile;
+                        drawingsDirty = true;
                         saveDrawings();
                     });
                 });
             }
 
 
-            function saveDrawings() {
+            function saveDrawings(force = false) {
+                if (!force && !drawingsDirty) {
+                    return;
+                }
                 fetch('/save_drawings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -671,6 +677,7 @@
                 })
                 .then(response => response.json())
                 .then(data => {
+                    drawingsDirty = false;
                 })
                 .catch(err => {});
             }
@@ -731,6 +738,7 @@
                 ];
                 
                 drawings = demoDrawings;
+                drawingsDirty = true;
                 editableLayers.clearLayers();
                 
                 let loadedCount = 0;
@@ -763,6 +771,7 @@
                 editableLayers.addLayer(layer);
                 const feature = layerToFeature(layer, currentColor);
                 drawings.push(feature);
+                drawingsDirty = true;
 
 
                 if (layer instanceof L.Marker) bindMarkerPopup(layer);
@@ -778,6 +787,7 @@
                     const f = drawings.find(f => f.properties._id === l._leaflet_id);
                     if (f) {
                         f.properties.deleted = true;
+                        drawingsDirty = true;
                         reportAction('delete', f);
                     }
                 });
@@ -925,6 +935,7 @@
                         const oldPathIdx = drawings.findIndex(f => f.properties._id === 'path');
                         if (oldPathIdx >= 0) {
                             drawings[oldPathIdx].properties.deleted = true;
+                            drawingsDirty = true;
 
                             editableLayers.eachLayer(layer => {
                                 if (layer._leaflet_id === 'path') {
@@ -951,6 +962,7 @@
                             geometry: { type: "LineString", coordinates: res.path.map(p => [p[1], p[0]]) }
                         };
                         drawings.push(pathFeature);
+                        drawingsDirty = true;
                         saveDrawings();
                     })
                     .catch(err => {
@@ -971,7 +983,10 @@
                 });
 
                 const idx = drawings.findIndex(f => f.properties._id === 'path');
-                if (idx >= 0) drawings[idx].properties.deleted = true;
+                if (idx >= 0) {
+                    drawings[idx].properties.deleted = true;
+                    drawingsDirty = true;
+                }
                 saveDrawings();
             }
 
@@ -1025,19 +1040,21 @@
 
 
             window.addEventListener('beforeunload', function(e) {
+                if (!drawingsDirty) {
+                    return;
+                }
                 const blob = new Blob([JSON.stringify(drawings)], {type: 'application/json'});
                 navigator.sendBeacon('/save_drawings', blob);
             });
 
 
             setInterval(function() {
-                if (drawings.length > 0) {
+                if (drawingsDirty) {
                     saveDrawings();
                 }
             }, 10000);
 
 
-            console.log('Initializing map...');
             safeLoadDrawings();
         </script>
     </body>

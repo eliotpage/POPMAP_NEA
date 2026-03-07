@@ -67,6 +67,10 @@ MERGE_INTERVAL = 10
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 load_dotenv()
 
+QUIET_HTTP_LOGS = os.getenv("QUIET_HTTP_LOGS", "1").strip().lower() not in ("0", "false", "no")
+if QUIET_HTTP_LOGS:
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
 LEAFLET_DRAW_DIST_DIR = os.path.join(os.path.dirname(__file__), 'static', 'leaflet-draw', 'dist')
 LEAFLET_DRAW_SRC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'leaflet-draw', 'src')
 
@@ -579,7 +583,7 @@ def tile_file(z, x, y):
             print(f"[Tile Proxy Error] target={target} error={e}")
             return Response(status=502)
 
-    if os.getenv("VERBOSE_LOGGING"):
+    if os.getenv("VERBOSE_LOGGING") and not QUIET_HTTP_LOGS:
         print(f"[Tile Not Found] z={z} x={x} y={y} - tile file does not exist")
     return Response(status=404)
 
@@ -753,6 +757,23 @@ def action_log():
 @app.route('/save_drawings', methods=['POST'])
 def save_drawings():
     try:
+        if APP_MODE == "client":
+            target = f"{SERVER_URL.rstrip('/')}/save_drawings"
+            try:
+                if request.is_json:
+                    payload = request.get_json()
+                else:
+                    payload = json.loads(request.data.decode('utf-8'))
+
+                upstream = requests.post(target, json=payload, timeout=10)
+                try:
+                    body = upstream.json()
+                except Exception:
+                    body = {"success": False, "error": format_upstream_error(upstream, "Server error")}
+                return jsonify(body), upstream.status_code
+            except Exception:
+                return jsonify(success=False, error="Could not reach server for save_drawings"), 502
+
         if request.is_json:
             data = request.get_json()
         else:
@@ -776,6 +797,18 @@ def save_drawings():
 @app.route('/merge_drawings')
 def merge_drawings_route():
     try:
+        if APP_MODE == "client":
+            target = f"{SERVER_URL.rstrip('/')}/merge_drawings"
+            try:
+                upstream = requests.get(target, timeout=10)
+                try:
+                    body = upstream.json()
+                except Exception:
+                    body = {"merged": [], "error": format_upstream_error(upstream, "Server error")}
+                return jsonify(body), upstream.status_code
+            except Exception:
+                return jsonify(merged=[], error="Could not reach server for merge_drawings"), 502
+
         if not os.path.exists(DRAWINGS_FILE):
             return jsonify(merged=[])
 
@@ -821,6 +854,18 @@ def merge_drawings_route():
 @app.route('/compute_path')
 def compute_path():
     try:
+        if APP_MODE == "client":
+            target = f"{SERVER_URL.rstrip('/')}/compute_path"
+            try:
+                upstream = requests.get(target, params=request.args, timeout=30)
+                try:
+                    body = upstream.json()
+                except Exception:
+                    body = {"error": format_upstream_error(upstream, "Server error")}
+                return jsonify(body), upstream.status_code
+            except Exception:
+                return jsonify(error="Could not reach server for compute_path"), 502
+
         start_lat = float(request.args.get('start_lat'))
         start_lon = float(request.args.get('start_lon'))
         goal_lat = float(request.args.get('goal_lat'))

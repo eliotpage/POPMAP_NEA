@@ -5,24 +5,62 @@ cd app
 
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "POPMAP server launcher"
-    echo "Usage: ./start_server.sh [--setup-auth] [--ngrok] [--port <server-port>] [--tile-dir <path>]"
+    echo "Usage: ./start_server.sh [options] [--port <port>] [--tile-dir <path>]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help              Show this help message"
+    echo "  -s, --setup-auth        Force reconfiguration of auth secrets"
+    echo "  -n, --ngrok             Auto-install and setup ngrok tunnel"
+    echo "  -l, --logs <0|1>        0=quiet (default), 1=show HTTP request logs"
+    echo ""
+    echo "Examples:"
+    echo "  ./start_server.sh                              # Start normally (quiet)"
+    echo "  ./start_server.sh -s -n                       # Setup auth and ngrok"
+    echo "  ./start_server.sh -l 1                        # Show logs"
+    echo "  ./start_server.sh -s -n -l 1 --port 5001      # Full setup with verbose logs"
     exit 0
 fi
 
 ENV_FILE=".env"
 FORCE_AUTH_SETUP=0
 WANTS_NGROK=0
+LOGS_VALUE=0
 FORWARD_ARGS=()
 
-for arg in "$@"; do
-    if [ "$arg" = "--ngrok" ]; then
-        WANTS_NGROK=1
-        FORWARD_ARGS+=("$arg")
-    elif [ "$arg" = "--setup-auth" ]; then
-        FORCE_AUTH_SETUP=1
-    else
-        FORWARD_ARGS+=("$arg")
-    fi
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -n|--ngrok)
+            WANTS_NGROK=1
+            FORWARD_ARGS+=("--ngrok")
+            shift
+            ;;
+        -s|--setup-auth)
+            FORCE_AUTH_SETUP=1
+            shift
+            ;;
+        -l|--logs)
+            if [ $# -gt 1 ]; then
+                LOGS_VALUE="$2"
+                shift 2
+            else
+                echo "Error: -l/--logs requires a value (0 or 1)"
+                exit 1
+            fi
+            ;;
+        -t|--tile-dir)
+            if [ $# -gt 1 ]; then
+                FORWARD_ARGS+=("--tile-dir" "$2")
+                shift 2
+            else
+                echo "Error: -t/--tile-dir requires a path"
+                exit 1
+            fi
+            ;;
+        *)
+            FORWARD_ARGS+=("$1")
+            shift
+            ;;
+    esac
 done
 
 get_env_value() {
@@ -179,5 +217,11 @@ export PIP_DISABLE_PIP_VERSION_CHECK=1
 pip install -q -r requirements.txt
 
 export APP_MODE=server
+
+if [ "$LOGS_VALUE" -eq 1 ]; then
+    export QUIET_HTTP_LOGS=0
+else
+    export QUIET_HTTP_LOGS=1
+fi
 
 python3 app.py --server "${FORWARD_ARGS[@]}"
