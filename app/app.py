@@ -173,6 +173,23 @@ if cli_connection_id and APP_MODE == "server":
 
 if APP_MODE == "client":
     server_id = cli_connection_id or os.getenv("SERVER_ID", "").strip()
+    
+    # If no server_id provided via CLI or env, prompt user for it
+    if not server_id:
+        print("\n" + "="*60)
+        print("POPMAP Client - Server Connection Required")
+        print("="*60)
+        print("\nNo Connection ID found. Please provide the Server's Connection ID.")
+        print("You can get this from the server startup output.")
+        print()
+        try:
+            server_id = input("Enter Connection ID (or press Enter for localhost:5001): ").strip()
+        except EOFError:
+            # Running in non-interactive mode (e.g., docker without -it)
+            print("\n[Client] Non-interactive mode detected. Using localhost:5001")
+            print("[Client] To connect to a remote server, use --uid flag or SERVER_ID env var.")
+            server_id = None
+    
     if server_id:
         try:
             # Client prefers SERVER_ID when provided because it carries a signed URL.
@@ -185,7 +202,8 @@ if APP_MODE == "client":
     elif SERVER_URL in ("http://localhost", "https://localhost"):
         # Backward-compatibility: old defaults without a port cannot reach the auth server.
         SERVER_URL = f"{SERVER_URL}:5001"
-        print(f"[Client] Normalized SERVER_URL to {SERVER_URL}")
+        print(f"[Client] Using default server at {SERVER_URL}")
+        print(f"[Client] To connect to a remote server, restart with --uid <CONNECTION_ID>")
 
 
 def detect_public_url(port, use_ngrok=False):
@@ -914,8 +932,8 @@ if APP_MODE == "server":
             active_clients_list.sort(key=lambda x: x['last_seen'], reverse=True)
             
             return jsonify({
-                'traffic': traffic_entries,
-                'actions': actions_entries,
+                'traffic': traffic_entries[::-1],
+                'actions': actions_entries[::-1],
                 'total_traffic': total_traffic,
                 'total_actions': total_actions,
                 'active_sessions': len(active_ips),

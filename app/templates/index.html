@@ -4,8 +4,8 @@
     <head>
         <meta charset="UTF-8">
         <title>POPMAP</title>
-        <link rel="stylesheet" href="static/leaflet/leaflet.css" />
-        <link rel="stylesheet" href="static/leaflet-draw/dist/leaflet.draw.css" />
+        <link rel="stylesheet" href="/static/leaflet/leaflet.css" />
+        <link rel="stylesheet" href="/static/leaflet-draw/dist/leaflet.draw.css" />
         <style>
             html,
             body {
@@ -198,6 +198,16 @@
                 opacity: 0.4;
                 pointer-events: none;
             }
+            
+            /* Ensure draw toolbar is visible above other elements */
+            .leaflet-draw-toolbar {
+                z-index: 1000 !important;
+            }
+            
+            .leaflet-draw {
+                position: relative;
+                z-index: 1000 !important;
+            }
 
             /* In-page alert */
             #site-alert {
@@ -263,8 +273,8 @@
 
         <div id="map"></div>
 
-        <script src="static/leaflet/leaflet.js"></script>
-        <script src="static/leaflet-draw/dist/leaflet.draw.js"></script>
+        <script src="/static/leaflet/leaflet.js"></script>
+        <script src="/static/leaflet-draw/dist/leaflet.draw.js"></script>
         <script>
             function showAlert(msg, type='error', duration=5000) {
                 const alertDiv = document.getElementById('site-alert');
@@ -364,8 +374,8 @@
             const colorControl = new L.Control.ColorToggle({ position: 'topleft' });
             colorControl.addTo(map);
             const colorContainer = colorControl.getContainer();
-            colorContainer.style.marginTop = '80px';
-            colorContainer.style.marginLeft = '50px';
+            colorContainer.style.marginTop = '140px';
+            colorContainer.style.marginLeft = '10px';
 
 
             let drawControl = new L.Control.Draw({
@@ -405,6 +415,18 @@
                 }
             });
             map.addControl(drawControl);
+            
+            // Verify draw control was added
+            try {
+                const drawToolbar = document.querySelector('.leaflet-draw-toolbar');
+                if (drawToolbar) {
+                    console.log('✓ Draw toolbar created successfully');
+                } else {
+                    console.warn('⚠️  Draw toolbar element not found after control creation');
+                }
+            } catch (e) {
+                console.warn('Could not verify draw toolbar:', e);
+            }
 
 
             window.mapDrawControl = drawControl;

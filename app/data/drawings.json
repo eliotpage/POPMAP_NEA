@@ -67,6 +67,38 @@
   {
     "geometry": {
       "coordinates": [
+        [
+          [
+            32.96241760253907,
+            34.995691265035695
+          ],
+          [
+            32.96241760253907,
+            35.018750379438316
+          ],
+          [
+            32.99812316894532,
+            35.018750379438316
+          ],
+          [
+            32.99812316894532,
+            34.995691265035695
+          ]
+        ]
+      ],
+      "type": "Polygon"
+    },
+    "properties": {
+      "_id": 135,
+      "color": "green",
+      "deleted": true,
+      "hostile": false
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
         33.10043334960938,
         35.05135948674818
       ],
@@ -78,23 +110,6 @@
       "deleted": true,
       "hostile": false,
       "radius": 5025.414054704862
-    },
-    "type": "Feature"
-  },
-  {
-    "geometry": {
-      "coordinates": [
-        32.848434448242195,
-        35.01762569539653
-      ],
-      "type": "Point"
-    },
-    "properties": {
-      "_id": 200,
-      "color": "grey",
-      "deleted": true,
-      "hostile": false,
-      "isMarker": true
     },
     "type": "Feature"
   },
@@ -161,6 +176,23 @@
       "color": "yellow",
       "deleted": true,
       "hostile": false
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        33.13270568847657,
+        35.03393209988576
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 145,
+      "color": "green",
+      "deleted": true,
+      "hostile": false,
+      "radius": 8689.937470517905
     },
     "type": "Feature"
   },
@@ -285,6 +317,301 @@
   {
     "geometry": {
       "coordinates": [
+        32.86834716796876,
+        35.010314872083875
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 157,
+      "color": "black",
+      "deleted": true,
+      "hostile": false,
+      "radius": 3752.135953654702
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.92877197265626,
+        35.02043737649657
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 158,
+      "color": "violet",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        [
+          [
+            32.89443969726563,
+            35.11822362875871
+          ],
+          [
+            32.89443969726563,
+            35.14854725645065
+          ],
+          [
+            32.94662475585938,
+            35.14854725645065
+          ],
+          [
+            32.94662475585938,
+            35.11822362875871
+          ]
+        ]
+      ],
+      "type": "Polygon"
+    },
+    "properties": {
+      "_id": 172,
+      "color": "blue",
+      "deleted": true,
+      "hostile": false
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        [
+          32.75093078613282,
+          35.22711145535215
+        ],
+        [
+          32.79968261718751,
+          35.14517852220059
+        ],
+        [
+          32.87246704101563,
+          35.04124081149451
+        ],
+        [
+          32.922592163085945,
+          35.02774729487063
+        ]
+      ],
+      "type": "LineString"
+    },
+    "properties": {
+      "_id": 303,
+      "color": "blue",
+      "deleted": true,
+      "hostile": false
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        [
+          [
+            32.925338745117195,
+            34.93266739425499
+          ],
+          [
+            32.925338745117195,
+            34.95180476488174
+          ],
+          [
+            32.952804565429695,
+            34.95180476488174
+          ],
+          [
+            32.952804565429695,
+            34.93266739425499
+          ]
+        ]
+      ],
+      "type": "Polygon"
+    },
+    "properties": {
+      "_id": 175,
+      "color": "violet",
+      "deleted": true,
+      "hostile": false
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.842941284179695,
+        34.986128262717195
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 177,
+      "color": "grey",
+      "deleted": true,
+      "hostile": false,
+      "isCircleMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.862167358398445,
+        35.06878315565393
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 178,
+      "color": "violet",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        [
+          [
+            33.03382873535157,
+            35.00159726712979
+          ],
+          [
+            33.03382873535157,
+            35.0729980007656
+          ],
+          [
+            33.05099487304688,
+            35.0729980007656
+          ],
+          [
+            33.05099487304688,
+            35.00159726712979
+          ]
+        ]
+      ],
+      "type": "Polygon"
+    },
+    "properties": {
+      "_id": 176,
+      "color": "orange",
+      "deleted": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.99468994140626,
+        34.90001098551393
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 312,
+      "color": "blue",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        33.17596435546876,
+        35.12047021066519
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 187,
+      "color": "black",
+      "deleted": true,
+      "hostile": false,
+      "isCircleMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        33.134078979492195,
+        35.09378805053448
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 188,
+      "color": "green",
+      "deleted": true,
+      "hostile": false,
+      "radius": 3810.7745923711286
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.76741027832032,
+        35.21813653471064
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 319,
+      "color": "blue",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.848434448242195,
+        35.01762569539653
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 200,
+      "color": "grey",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
+        32.996749877929695,
+        35.099686964274724
+      ],
+      "type": "Point"
+    },
+    "properties": {
+      "_id": 207,
+      "color": "orange",
+      "deleted": true,
+      "hostile": false,
+      "isMarker": true
+    },
+    "type": "Feature"
+  },
+  {
+    "geometry": {
+      "coordinates": [
         [
           [
             33.059921264648445,
@@ -383,94 +710,31 @@
     "geometry": {
       "coordinates": [
         [
-          32.75093078613282,
-          35.22711145535215
-        ],
-        [
-          32.79968261718751,
-          35.14517852220059
-        ],
-        [
-          32.87246704101563,
-          35.04124081149451
-        ],
-        [
-          32.922592163085945,
-          35.02774729487063
-        ]
-      ],
-      "type": "LineString"
-    },
-    "properties": {
-      "_id": 303,
-      "color": "blue",
-      "deleted": true,
-      "hostile": false
-    },
-    "type": "Feature"
-  },
-  {
-    "geometry": {
-      "coordinates": [
-        [
           [
-            33.03382873535157,
-            35.00159726712979
+            32.966537475585945,
+            35.04180299300216
           ],
           [
-            33.03382873535157,
-            35.0729980007656
+            32.966537475585945,
+            35.09463077862675
           ],
           [
-            33.05099487304688,
-            35.0729980007656
+            33.06198120117188,
+            35.09463077862675
           ],
           [
-            33.05099487304688,
-            35.00159726712979
+            33.06198120117188,
+            35.04180299300216
           ]
         ]
       ],
       "type": "Polygon"
     },
     "properties": {
-      "_id": 176,
-      "color": "orange",
-      "deleted": true
-    },
-    "type": "Feature"
-  },
-  {
-    "geometry": {
-      "coordinates": [
-        32.842941284179695,
-        34.986128262717195
-      ],
-      "type": "Point"
-    },
-    "properties": {
-      "_id": 177,
-      "color": "grey",
+      "_id": 120,
+      "color": "yellow",
       "deleted": true,
-      "hostile": false,
-      "isCircleMarker": true
-    },
-    "type": "Feature"
-  },
-  {
-    "geometry": {
-      "coordinates": [
-        32.99468994140626,
-        34.90001098551393
-      ],
-      "type": "Point"
-    },
-    "properties": {
-      "_id": 312,
-      "color": "blue",
-      "deleted": true,
-      "hostile": false,
-      "isMarker": true
+      "hostile": false
     },
     "type": "Feature"
   },
@@ -503,23 +767,6 @@
       "color": "blue",
       "deleted": true,
       "hostile": false
-    },
-    "type": "Feature"
-  },
-  {
-    "geometry": {
-      "coordinates": [
-        33.134078979492195,
-        35.09378805053448
-      ],
-      "type": "Point"
-    },
-    "properties": {
-      "_id": 188,
-      "color": "green",
-      "deleted": true,
-      "hostile": false,
-      "radius": 3810.7745923711286
     },
     "type": "Feature"
   },
@@ -557,17 +804,17 @@
   {
     "geometry": {
       "coordinates": [
-        32.76741027832032,
-        35.21813653471064
+        33.06472778320313,
+        34.954618707382416
       ],
       "type": "Point"
     },
     "properties": {
-      "_id": 319,
-      "color": "blue",
+      "_id": 127,
+      "color": "violet",
       "deleted": true,
       "hostile": false,
-      "isMarker": true
+      "radius": 3513.2565974769873
     },
     "type": "Feature"
   }
