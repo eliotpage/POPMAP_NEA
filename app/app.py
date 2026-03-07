@@ -24,7 +24,7 @@ import sys
 import argparse
 import socket
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
 from lib.dstar import DStarLite
 from lib.hashing import generate_otp, verify_otp, generate_connection_id, resolve_connection_id
 from dotenv import load_dotenv
@@ -62,7 +62,14 @@ DEMO_SHARED = [
 
 DRAWINGS_FILE = os.path.join('data', 'drawings.json')
 SHARED_FILE = os.path.join('data', 'shared.json')
-TILE_DIR = os.path.join('static', 'tiles')
+DEFAULT_TILE_DIR = os.path.join('static', 'tiles')
+TILE_DIR = os.getenv("TILE_DIR", DEFAULT_TILE_DIR).strip() or DEFAULT_TILE_DIR
+if not os.path.isabs(TILE_DIR):
+    TILE_DIR = os.path.abspath(TILE_DIR)
+if not os.path.isdir(TILE_DIR):
+    print(f"[Startup] TILE_DIR not found: {TILE_DIR}")
+    print("[Startup] Continuing without tile-based cost map; monitor and non-map features remain available.")
+    TILE_DIR = None
 DEM_PATH = os.path.join('static', 'output_be.tif')
 MERGE_INTERVAL = 10
 
@@ -298,6 +305,18 @@ def map_page():
     if 'user' not in session:
         return redirect(url_for('login'))
     return render_template('index.html')
+
+
+@app.route('/tiles/<int:z>/<int:x>/<int:y>.png')
+def tile_file(z, x, y):
+    """Serve map tiles from configurable TILE_DIR."""
+    if not TILE_DIR:
+        return jsonify(error="Tiles are not configured"), 404
+    tile_folder = os.path.join(TILE_DIR, str(z), str(x))
+    tile_name = f"{y}.png"
+    if not os.path.exists(os.path.join(tile_folder, tile_name)):
+        return jsonify(error="Tile not found"), 404
+    return send_from_directory(tile_folder, tile_name)
 
 # ============================================================
 # AUTHENTICATION ROUTES
@@ -812,5 +831,7 @@ if __name__ == "__main__":
     else:
         port = 5000
         print(f"Starting POPMAP CLIENT on port {port}")
+
+    print(f"Using TILE_DIR: {TILE_DIR}")
 
     app.run(debug=False, port=port, host='0.0.0.0')

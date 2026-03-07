@@ -28,6 +28,8 @@ REM Optional for cross-device clients:
 REM   set PUBLIC_SERVER_URL=http://<your-lan-ip>:5001
 REM Optional to customize connection ID signing (must match on clients):
 REM   set POPMAP_CONNECTION_SECRET=shared-connection-secret
+REM Optional to customize tile directory when using map-based routing:
+REM   set TILE_DIR=C:\path\to\tiles
 REM Server startup will print a generated Connection ID to share with clients.
 set APP_MODE=server
 %PYTHON_CMD% app.py --server

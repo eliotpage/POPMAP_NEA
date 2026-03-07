@@ -25,6 +25,9 @@ pip install -q -r requirements.txt
 #   export PUBLIC_SERVER_URL=http://<your-lan-ip>:5001
 # Optional to customize connection ID signing (must match on clients):
 #   export POPMAP_CONNECTION_SECRET=shared-connection-secret
+# Optional to customize tile directory when using map-based routing:
+#   export TILE_DIR=/path/to/tiles
 # Server startup will print a generated Connection ID to share with clients.
 export APP_MODE=server
+
 python3 app.py --server

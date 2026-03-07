@@ -22,6 +22,9 @@ pip install -q -r requirements.txt
 
 REM Nginx startup from Linux script is not applied on Windows.
 set APP_MODE=client
+set "TILE_DIR="
+set /p TILE_DIR=Enter tiles path (leave blank for app/static/tiles): 
+if not "%TILE_DIR%"=="" set "TILE_DIR=%TILE_DIR%"
 set "SERVER_ID="
 set /p SERVER_ID=Enter Connection ID (leave blank to use SERVER_URL/default): 
 if not "%SERVER_ID%"=="" set "SERVER_ID=%SERVER_ID%"
