@@ -1,19 +1,3 @@
-"""
-Unified POPMAP Application
-Runs in either CLIENT or SERVER mode based on APP_MODE environment variable or --server flag.
-
-CLIENT mode (default, port 5000):
-  - Map interface for drawing routes and obstacles
-  - Communicates with server for authentication and pathfinding
-  - Displays merged drawings and computed paths
-
-SERVER mode (port 5001):
-  - Authentication via OTP email
-  - Pathfinding computation
-  - Traffic monitoring dashboard
-  - Background thread for merging drawings every 10 seconds
-"""
-
 import os
 import json
 import math
@@ -23,6 +7,10 @@ import re
 import sys
 import argparse
 import socket
+import logging
+import shutil
+import subprocess
+import atexit
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory, Response
 from lib.dstar import DStarLite
@@ -31,22 +19,19 @@ from dotenv import load_dotenv
 import numpy as np
 import requests
 
-# Parse command line arguments
 parser = argparse.ArgumentParser(description='POPMAP Application')
 parser.add_argument('--server', action='store_true', help='Run in server mode (default: client mode)')
 parser.add_argument('--port', type=int, help='Port to bind this app to (default: 5000 client, 5001 server)')
 parser.add_argument('--tile-dir', dest='tile_dir', type=str, help='Path to tile root directory (must contain zoom folders)')
 parser.add_argument('--uid', type=str, help='Connection ID for client mode (alias for SERVER_ID)')
 parser.add_argument('--server-id', dest='server_id', type=str, help='Connection ID for client mode (same as --uid)')
-parser.add_argument('--public', action='store_true', help='Create public tunnel via ngrok for remote connections (server mode only)')
+parser.add_argument('--ngrok', action='store_true', help='Start an ngrok tunnel automatically for remote connections (server mode only)')
 args = parser.parse_args()
 
-# Determine app mode from environment variable or CLI flag
 APP_MODE = os.getenv("APP_MODE", "server" if args.server else "client").lower()
 if APP_MODE not in ["client", "server"]:
     APP_MODE = "client"
 
-# Demo data for testing
 DEMO_DRAWINGS = [
     {"type": "Feature", "properties": {"_id": 1, "deleted": False, "color": "blue", "isMarker": True, "hostile": False},
      "geometry": {"type": "Point", "coordinates": [33.100, 35.100]}},
@@ -79,16 +64,48 @@ DEM_PATH = os.path.join(os.path.dirname(__file__), 'static', 'output_be.tif')
 LOGS_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 MERGE_INTERVAL = 10
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 load_dotenv()
 
-# Ensure logs directory exists for action logging in all modes
+LEAFLET_DRAW_DIST_DIR = os.path.join(os.path.dirname(__file__), 'static', 'leaflet-draw', 'dist')
+LEAFLET_DRAW_SRC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'leaflet-draw', 'src')
+
+LEAFLET_DRAW_SRC_FILES = [
+    'Leaflet.draw.js',
+    'Leaflet.Draw.Event.js',
+    'ext/TouchEvents.js',
+    'ext/LatLngUtil.js',
+    'ext/GeometryUtil.js',
+    'ext/LineUtil.Intersect.js',
+    'ext/Polyline.Intersect.js',
+    'ext/Polygon.Intersect.js',
+    'draw/handler/Draw.Feature.js',
+    'draw/handler/Draw.Polyline.js',
+    'draw/handler/Draw.Polygon.js',
+    'draw/handler/Draw.SimpleShape.js',
+    'draw/handler/Draw.Rectangle.js',
+    'draw/handler/Draw.Marker.js',
+    'draw/handler/Draw.CircleMarker.js',
+    'draw/handler/Draw.Circle.js',
+    'edit/handler/Edit.Marker.js',
+    'edit/handler/Edit.Poly.js',
+    'edit/handler/Edit.SimpleShape.js',
+    'edit/handler/Edit.Rectangle.js',
+    'edit/handler/Edit.CircleMarker.js',
+    'edit/handler/Edit.Circle.js',
+    'Control.Draw.js',
+    'Toolbar.js',
+    'Tooltip.js',
+    'draw/DrawToolbar.js',
+    'edit/EditToolbar.js',
+    'edit/handler/EditToolbar.Edit.js',
+    'edit/handler/EditToolbar.Delete.js',
+]
+
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 
-# Action logging helper (available in both modes)
 def log_action(action, result, details="", user_override=None):
-    # Prefer forwarded IP when behind proxy
     forwarded_for = request.headers.get('X-Forwarded-For', '')
     ip_part = forwarded_for.split(',')[0].strip() if forwarded_for else None
     ip_addr = ip_part or request.remote_addr
@@ -111,7 +128,6 @@ def log_action(action, result, details="", user_override=None):
     except Exception as e:
         print(f"Error logging action: {e}")
 
-# Server mode specific initialization
 if APP_MODE == "server":
     try:
         from flask_mail import Mail, Message
@@ -120,7 +136,6 @@ if APP_MODE == "server":
         MAIL_USERNAME = os.getenv("MAIL_USERNAME")
         MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
         
-        # Email is optional - server works in demo mode without it
         if MAIL_USERNAME and MAIL_PASSWORD:
             app.config.update(
                 MAIL_SERVER='smtp.gmail.com',
@@ -133,20 +148,20 @@ if APP_MODE == "server":
             print("[Server] Email authentication enabled")
         else:
             mail = None
-            print("[Server] ⚠️  Email not configured. Authentication endpoints will not send emails.")
+            print("[Server] Email not configured. Authentication endpoints will not send emails.")
             print("        Set MAIL_USERNAME and MAIL_PASSWORD environment variables to enable email.")
         
     except ImportError:
         print("Warning: flask_mail not installed. Email functionality will not work in server mode.")
         mail = None
 else:
-    # Client mode
     app.secret_key = os.getenv("SECRET_KEY", "client-secret-key-change-in-production")
     mail = None
 
 DEFAULT_SERVER_URL = "http://localhost:5001"
 SERVER_URL = os.getenv("SERVER_URL", DEFAULT_SERVER_URL).strip() or DEFAULT_SERVER_URL
 CONNECTION_ID_SECRET = os.getenv("POPMAP_CONNECTION_SECRET", "")
+NGROK_PROCESS = None
 
 
 def format_upstream_error(response, fallback_label="Server error"):
@@ -171,10 +186,12 @@ cli_connection_id = (args.uid or args.server_id or "").strip()
 if cli_connection_id and APP_MODE == "server":
     print("[Startup] Ignoring --uid/--server-id in server mode (these are client-only flags).")
 
+if args.ngrok and APP_MODE == "client":
+    print("[Startup] Ignoring --ngrok in client mode (server-only flag).")
+
 if APP_MODE == "client":
     server_id = cli_connection_id or os.getenv("SERVER_ID", "").strip()
     
-    # If no server_id provided via CLI or env, prompt user for it
     if not server_id:
         print("\n" + "="*60)
         print("POPMAP Client - Server Connection Required")
@@ -185,14 +202,12 @@ if APP_MODE == "client":
         try:
             server_id = input("Enter Connection ID (or press Enter for localhost:5001): ").strip()
         except EOFError:
-            # Running in non-interactive mode (e.g., docker without -it)
             print("\n[Client] Non-interactive mode detected. Using localhost:5001")
             print("[Client] To connect to a remote server, use --uid flag or SERVER_ID env var.")
             server_id = None
     
     if server_id:
         try:
-            # Client prefers SERVER_ID when provided because it carries a signed URL.
             SERVER_URL = resolve_connection_id(server_id, CONNECTION_ID_SECRET or None)
             print(f"[Client] Resolved server from SERVER_ID: {SERVER_URL}")
         except ValueError as e:
@@ -200,7 +215,6 @@ if APP_MODE == "client":
             print("[Client] Startup aborted. Enter a valid Connection ID.")
             sys.exit(1)
     elif SERVER_URL in ("http://localhost", "https://localhost"):
-        # Backward-compatibility: old defaults without a port cannot reach the auth server.
         SERVER_URL = f"{SERVER_URL}:5001"
         print(f"[Client] Using default server at {SERVER_URL}")
         print(f"[Client] To connect to a remote server, restart with --uid <CONNECTION_ID>")
@@ -212,31 +226,28 @@ def detect_public_url(port, use_ngrok=False):
     Precedence:
     1. PUBLIC_SERVER_URL environment variable (explicit override)
     2. GitHub Codespaces public URL (auto-detected)
-    3. ngrok tunnel (if --public flag set and ngrok running)
+    3. ngrok tunnel (if --ngrok flag set)
     4. Local IP (for same-network connections)
     """
     explicit_url = os.getenv("PUBLIC_SERVER_URL", "").strip()
     if explicit_url:
         return explicit_url
     
-    # GitHub Codespaces detection
     if os.getenv("CODESPACES") == "true":
         codespace_name = os.getenv("CODESPACE_NAME", "").strip()
         codespaces_domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "preview.app.github.dev").strip()
         if codespace_name:
             return f"https://{codespace_name}-{port}.{codespaces_domain}"
     
-    # ngrok tunnel detection
     if use_ngrok:
         ngrok_url = detect_ngrok_tunnel()
         if ngrok_url:
             return ngrok_url
     
-    # Local network fallback
     return f"http://{detect_local_ip()}:{port}"
 
 
-def detect_ngrok_tunnel():
+def detect_ngrok_tunnel(quiet=False):
     """Try to get ngrok tunnel URL from ngrok API (assumes ngrok is running).
     
     ngrok typically exposes its API on http://127.0.0.1:4040 by default.
@@ -245,12 +256,10 @@ def detect_ngrok_tunnel():
         import json
         import urllib.request
         
-        # Query ngrok's local API
         with urllib.request.urlopen('http://127.0.0.1:4040/api/tunnels', timeout=2) as res:
             data = json.loads(res.read().decode())
             tunnels = data.get('tunnels', [])
             
-            # Find the first http/https tunnel (prefer https)
             for tunnel in tunnels:
                 if tunnel.get('proto') in ('http', 'https'):
                     public_url = tunnel.get('public_url')
@@ -258,9 +267,65 @@ def detect_ngrok_tunnel():
                         print(f"[Server] Detected ngrok tunnel: {public_url}")
                         return public_url
     except Exception as e:
-        print(f"[Server] ngrok not detected on localhost:4040 (is it running? `ngrok http 5001`)")
-        print(f"[Server] Fallback to local IP detection.")
+        if not quiet:
+            print(f"[Server] ngrok not detected on localhost:4040 (is it running? `ngrok http 5001`)")
+            print("[Server] Fallback to local IP detection.")
     
+    return None
+
+
+def stop_ngrok_tunnel():
+    """Terminate ngrok process if this app started it."""
+    global NGROK_PROCESS
+    if NGROK_PROCESS and NGROK_PROCESS.poll() is None:
+        try:
+            NGROK_PROCESS.terminate()
+            NGROK_PROCESS.wait(timeout=3)
+            print("[Server] Stopped ngrok tunnel process")
+        except Exception:
+            try:
+                NGROK_PROCESS.kill()
+            except Exception:
+                pass
+    NGROK_PROCESS = None
+
+
+def start_ngrok_tunnel(port, timeout_seconds=12):
+    """Start ngrok tunnel for the given port and return tunnel URL if available."""
+    global NGROK_PROCESS
+
+    existing_url = detect_ngrok_tunnel(quiet=True)
+    if existing_url:
+        return existing_url
+
+    ngrok_bin = shutil.which("ngrok")
+    if not ngrok_bin:
+        print("[Server] ngrok executable not found on PATH. Install ngrok to use --ngrok.")
+        return None
+
+    cmd = [ngrok_bin, "http", str(port)]
+    print(f"[Server] Starting ngrok tunnel: {' '.join(cmd)}")
+
+    try:
+        if os.getenv("VERBOSE_LOGGING"):
+            NGROK_PROCESS = subprocess.Popen(cmd)
+        else:
+            NGROK_PROCESS = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[Server] Failed to launch ngrok: {e}")
+        NGROK_PROCESS = None
+        return None
+
+    atexit.register(stop_ngrok_tunnel)
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        url = detect_ngrok_tunnel(quiet=True)
+        if url:
+            return url
+        time.sleep(0.5)
+
+    print("[Server] ngrok started but tunnel URL was not detected in time.")
     return None
 
 
@@ -275,20 +340,13 @@ def detect_local_ip():
     finally:
         sock.close()
 
-# Initialize pathfinding engine with terrain data
 dstar = DStarLite(DEM_PATH, tile_dir=TILE_DIR, zoom=11)
-
-# ============================================================
-# SERVER MODE: Traffic logging and background processes
-# ============================================================
 
 if APP_MODE == "server":
     os.makedirs(LOGS_DIR, exist_ok=True)
     
-    # Traffic logging middleware
     @app.before_request
     def log_request():
-        # Skip monitoring its own dashboard traffic
         if request.path.startswith('/monitor'):
             return
         request.start_time = time.time()
@@ -305,7 +363,6 @@ if APP_MODE == "server":
             ua = request.user_agent.string.replace('"', '')[:120]
             body_bytes = request.content_length or (response.calculate_content_length() or 0)
 
-            # Prefer forwarded IP when behind proxy (same logic as log_action)
             forwarded_for = request.headers.get('X-Forwarded-For', '')
             ip_part = forwarded_for.split(',')[0].strip() if forwarded_for else None
             ip_addr = ip_part or request.remote_addr
@@ -329,9 +386,6 @@ if APP_MODE == "server":
                 print(f"Error logging traffic: {e}")
         return response
 
-    # Action logging handled globally; see action_log route outside server guard
-
-    # Background thread to merge drawings with shared data every 10 seconds
     def merge_drawings_loop():
         while True:
             if not os.path.exists(DRAWINGS_FILE) or not os.path.exists(SHARED_FILE):
@@ -384,15 +438,11 @@ if APP_MODE == "server":
                 with open(DRAWINGS_FILE, 'w') as f:
                     json.dump(merged_list, f, indent=2)
             except Exception as e:
-                print("[Merge Error]", e)
+                pass
 
             time.sleep(MERGE_INTERVAL)
 
     merge_thread = threading.Thread(target=merge_drawings_loop, daemon=True)
-
-# ============================================================
-# COMMON ROUTES (available in both modes)
-# ============================================================
 
 @app.route('/')
 def index():
@@ -417,18 +467,80 @@ def map_page():
     return render_template('index.html')
 
 
+@app.route('/leaflet-draw/local/leaflet.draw.css')
+def leaflet_draw_css_local():
+    """Serve local Leaflet Draw CSS; fallback to src CSS when dist file is missing."""
+    dist_css = os.path.join(LEAFLET_DRAW_DIST_DIR, 'leaflet.draw.css')
+    if os.path.exists(dist_css):
+        return send_from_directory(LEAFLET_DRAW_DIST_DIR, 'leaflet.draw.css', mimetype='text/css')
+
+    src_css = os.path.join(LEAFLET_DRAW_SRC_DIR, 'leaflet.draw.css')
+    if not os.path.exists(src_css):
+        return Response('/* Leaflet Draw CSS missing */', status=404, mimetype='text/css')
+
+    with open(src_css, 'r', encoding='utf-8') as f:
+        css = f.read()
+
+    css = css.replace("url('images/", "url('/leaflet-draw/local/images/")
+    css = css.replace('url("images/', 'url("/leaflet-draw/local/images/')
+    css = css.replace('url(images/', 'url(/leaflet-draw/local/images/')
+
+    return Response(css, mimetype='text/css')
+
+
+@app.route('/leaflet-draw/local/images/<path:filename>')
+def leaflet_draw_images_local(filename):
+    """Serve Leaflet Draw image assets from dist first, then src fallback."""
+    dist_path = os.path.join(LEAFLET_DRAW_DIST_DIR, 'images', filename)
+    src_path = os.path.join(LEAFLET_DRAW_SRC_DIR, 'images', filename)
+
+    if os.path.exists(dist_path):
+        return send_from_directory(os.path.join(LEAFLET_DRAW_DIST_DIR, 'images'), filename)
+    if os.path.exists(src_path):
+        return send_from_directory(os.path.join(LEAFLET_DRAW_SRC_DIR, 'images'), filename)
+
+    if os.getenv('VERBOSE_LOGGING'):
+        print(f"[Leaflet Draw] Image missing: {filename}")
+    return Response(status=404)
+
+
+@app.route('/leaflet-draw/local/leaflet.draw.js')
+def leaflet_draw_js_local():
+    """Serve local Leaflet Draw JS; fallback to concatenated src files when dist file is missing."""
+    dist_js = os.path.join(LEAFLET_DRAW_DIST_DIR, 'leaflet.draw.js')
+    if os.path.exists(dist_js):
+        return send_from_directory(LEAFLET_DRAW_DIST_DIR, 'leaflet.draw.js', mimetype='application/javascript')
+
+    chunks = []
+    missing = []
+    for rel_path in LEAFLET_DRAW_SRC_FILES:
+        src_path = os.path.join(LEAFLET_DRAW_SRC_DIR, rel_path)
+        if not os.path.exists(src_path):
+            missing.append(rel_path)
+            continue
+        with open(src_path, 'r', encoding='utf-8') as f:
+            chunks.append(f"\n/* --- {rel_path} --- */\n" + f.read())
+
+    if missing:
+        return Response(
+            '/* Missing Leaflet Draw source files: ' + ', '.join(missing) + ' */',
+            status=404,
+            mimetype='application/javascript'
+        )
+
+    return Response('\n'.join(chunks), mimetype='application/javascript')
+
+
 @app.route('/tiles/<int:z>/<int:x>/<int:y>.png')
 def tile_file(z, x, y):
     """Serve tiles locally when present, otherwise proxy from server in client mode."""
     MAX_NATIVE_ZOOM = 15
     
-    # If requesting zoom > 15, scale down to zoom 15 coordinates
     if z > MAX_NATIVE_ZOOM:
         scale_factor = 2 ** (z - MAX_NATIVE_ZOOM)
         z_native = MAX_NATIVE_ZOOM
         x_native = x // scale_factor
         y_native = y // scale_factor
-        print(f"[Tile Overzoom] z={z} x={x} y={y} -> z={z_native} x={x_native} y={y_native}")
         z, x, y = z_native, x_native, y_native
     
     tile_name = f"{y}.png"
@@ -436,7 +548,6 @@ def tile_file(z, x, y):
     if TILE_DIR:
         tile_folder = os.path.join(TILE_DIR, str(z), str(x))
         local_tile = os.path.join(tile_folder, tile_name)
-        print(f"[Tile Request] z={z} x={x} y={y} path={local_tile} exists={os.path.exists(local_tile)}")
         if os.path.exists(local_tile):
             return send_from_directory(tile_folder, tile_name)
 
@@ -455,14 +566,11 @@ def tile_file(z, x, y):
             print(f"[Tile Proxy Error] target={target} error={e}")
             return Response(status=502)
 
-    print(f"[Tile Not Found] z={z} x={x} y={y} - tile file does not exist")
+    if os.getenv("VERBOSE_LOGGING"):
+        print(f"[Tile Not Found] z={z} x={x} y={y} - tile file does not exist")
     return Response(status=404)
 
-# ============================================================
-# AUTHENTICATION ROUTES
-# ============================================================
 
-# OTP request - relay to server (CLIENT mode) or send directly (SERVER mode)
 @app.route('/request_otp', methods=['POST'])
 def request_otp():
     data = request.get_json()
@@ -472,19 +580,15 @@ def request_otp():
     
     if APP_MODE == "client":
         try:
-            # Call server to send OTP email
             response = requests.post(f"{SERVER_URL}/send_otp", json={"user": user}, timeout=10)
             if response.status_code == 200:
                 result = response.json()
                 return jsonify(success=result.get('success', False), error=result.get('error', ''))
             else:
-                upstream_error = format_upstream_error(response, "Server error")
-                return jsonify(success=False, error=upstream_error)
+                return jsonify(success=False, error="Server error")
         except Exception as e:
-            print(f"[Request OTP Error] target={SERVER_URL}/send_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
     else:
-        # Server mode - send OTP directly
         if not mail:
             return jsonify(success=False, error="Email not configured")
         
@@ -499,10 +603,8 @@ def request_otp():
             mail.send(msg)
             return jsonify(success=True)
         except Exception as e:
-            print("[Mail Error]", e)
-            return jsonify(success=False, error="Failed to send OTP")
+            return jsonify(success=False, error="Failed to send email")
 
-# OTP verification - relay to server (CLIENT mode) or verify directly (SERVER mode)
 @app.route('/login_verify', methods=['POST'])
 def login_verify():
     data = request.get_json()
@@ -513,7 +615,6 @@ def login_verify():
     
     if APP_MODE == "client":
         try:
-            # Call server to verify OTP
             response = requests.post(f"{SERVER_URL}/verify_otp", json={"user": user, "otp": token}, timeout=10)
             if response.status_code == 200:
                 result = response.json()
@@ -526,16 +627,13 @@ def login_verify():
                 upstream_error = format_upstream_error(response, "Server error")
                 return jsonify(success=False, error=upstream_error)
         except Exception as e:
-            print(f"[Login Verify Error] target={SERVER_URL}/verify_otp error={e}")
             return jsonify(success=False, error="Could not reach authentication server")
     else:
-        # Server mode - verify OTP directly
         if verify_otp(app.secret_key, user, token):
             session['user'] = user
             return jsonify(success=True)
         return jsonify(success=False, error="Invalid or expired OTP")
 
-# API endpoint for client apps to send OTP (SERVER mode only)
 @app.route('/send_otp', methods=['POST'])
 def send_otp():
     """Client API: Send OTP email to user"""
@@ -563,11 +661,9 @@ def send_otp():
         log_action('send_otp', 'ok', f'user={user}')
         return jsonify(success=True)
     except Exception as e:
-        print("[Mail Error]", e)
         log_action('send_otp', 'error', f'user={user} error={str(e)[:50]}')
         return jsonify(success=False, error="Failed to send OTP")
 
-# API endpoint for client apps to verify OTP (SERVER mode only)
 @app.route('/verify_otp', methods=['POST'])
 def verify_otp_endpoint():
     """Client API: Verify OTP sent by client"""
@@ -586,10 +682,6 @@ def verify_otp_endpoint():
         return jsonify(success=True)
     log_action('verify_otp', 'error', f'user={user} invalid_token')
     return jsonify(success=False, error="Invalid or expired OTP")
-
-# ============================================================
-# DRAWING & MAP ROUTES
-# ============================================================
 
 @app.route('/action/log', methods=['POST'])
 def action_log():
@@ -619,7 +711,6 @@ def action_log():
     detail_str = f"event={action} " + " ".join(parts)
     user_override = payload.get('user')
 
-    # If running in client mode with a SERVER_URL, forward to server for central logging
     if APP_MODE == "client":
         try:
             target = f"{SERVER_URL.rstrip('/')}/action/log"
@@ -635,12 +726,10 @@ def action_log():
             if resp.ok:
                 return jsonify(success=True, forwarded=True)
             else:
-                # Fall back to local log if server rejects
                 log_action('action_log_forward', 'error', f"status={resp.status_code}")
         except Exception as e:
             log_action('action_log_forward', 'error', f"message={str(e)[:80]}")
 
-    # Local logging (server mode or client fallback)
     try:
         log_action(action, result, details=detail_str.strip(), user_override=user_override)
         return jsonify(success=True)
@@ -648,7 +737,6 @@ def action_log():
         log_action('action_log', 'error', f"message={str(e)[:80]}")
         return jsonify(error=str(e)), 400
 
-# Save user's drawings to local JSON database
 @app.route('/save_drawings', methods=['POST'])
 def save_drawings():
     try:
@@ -661,20 +749,17 @@ def save_drawings():
         deleted_count = sum(1 for f in data if f.get('properties', {}).get('deleted'))
         with open(DRAWINGS_FILE, 'w') as f:
             json.dump(data, f, indent=2)
-        print(f"[Save] Saved {len(data)} drawings")
 
         if APP_MODE == "server":
             try:
                 log_action('save_drawings', 'ok', f"total={len(data)} deleted={deleted_count}")
             except Exception as e:
-                print(f"[Action Log Error] {e}")
+                pass
 
         return jsonify(success=True)
     except Exception as e:
-        print(f"[Save Error] {e}")
         return jsonify(success=False, error=str(e)), 400
 
-# Merge user and shared drawings
 @app.route('/merge_drawings')
 def merge_drawings_route():
     try:
@@ -720,7 +805,6 @@ def merge_drawings_route():
     except Exception as e:
         return jsonify(error=str(e))
 
-# Calculate optimal path avoiding hostile zones
 @app.route('/compute_path')
 def compute_path():
     try:
@@ -728,7 +812,7 @@ def compute_path():
         start_lon = float(request.args.get('start_lon'))
         goal_lat = float(request.args.get('goal_lat'))
         goal_lon = float(request.args.get('goal_lon'))
-        corridor_m = float(request.args.get('corridor', 50))
+        min_clearance_m = float(request.args.get('clearance', request.args.get('corridor', 0)))
 
         if not os.path.exists(DRAWINGS_FILE):
             return jsonify(error="Drawings file missing")
@@ -736,13 +820,9 @@ def compute_path():
             drawings = json.load(f)
 
         hostile_features = [f for f in drawings if f['properties'].get('hostile') and not f['properties'].get('deleted')]
-        print(f"[Path] Computing path with {len(hostile_features)} hostile features out of {len(drawings)} total drawings")
-        for hf in hostile_features:
-            print(f"  - Hostile {hf['geometry']['type']}: ID={hf['properties']['_id']}, Color={hf['properties'].get('color')}")
-
+        print(f"Pathfinding: {len(drawings)} total drawings, {len(hostile_features)} marked as hostile")
         dstar.apply_hostile_zones(hostile_features, influence_radius_m=100)
 
-        debug_msgs = []
         start_r, start_c = dstar.latlon_to_index(start_lat, start_lon)
         goal_r, goal_c = dstar.latlon_to_index(goal_lat, goal_lon)
 
@@ -750,32 +830,33 @@ def compute_path():
         goal_blocked = dstar.in_bounds(goal_r, goal_c) and dstar.hostile_mask[goal_r, goal_c]
 
         if start_blocked or goal_blocked:
-            if start_blocked:
-                debug_msgs.append("Start point lies inside a hostile zone")
-            if goal_blocked:
-                debug_msgs.append("Goal point lies inside a hostile zone")
             return jsonify(
-                error="Start or goal is inside a hostile zone. Move points outside hostile areas and retry.",
-                debug=debug_msgs
+                error="Start or goal is inside a hostile zone. Move points outside hostile areas and retry."
             )
 
-        retry_corridors = [corridor_m]
-        for candidate in (max(corridor_m * 2, 100), max(corridor_m * 4, 250), None):
-            if candidate not in retry_corridors:
-                retry_corridors.append(candidate)
+        start_clearance = dstar.hostile_distance_m[start_r, start_c] if dstar.in_bounds(start_r, start_c) else float('inf')
+        goal_clearance = dstar.hostile_distance_m[goal_r, goal_c] if dstar.in_bounds(goal_r, goal_c) else float('inf')
+
+        if start_clearance < min_clearance_m or goal_clearance < min_clearance_m:
+            return jsonify(
+                error="Start or goal does not meet the required hostile clearance. Move points or lower minimum clearance."
+            )
+
+        approx_dist_m = dstar.latlon_distance(start_lat, start_lon, goal_lat, goal_lon)
+        retry_margins = [
+            max(500.0, approx_dist_m * 0.4),
+            max(1500.0, approx_dist_m * 0.9),
+            None
+        ]
 
         path = []
-        for idx, attempt_corridor in enumerate(retry_corridors):
-            if idx > 0:
-                debug_msgs.append(f"Retrying with wider corridor: {attempt_corridor if attempt_corridor is not None else 'full-map search'}")
-
+        for idx, margin_m in enumerate(retry_margins):
             attempt_path, attempt_debug = dstar.compute_path(
                 (start_lat, start_lon),
                 (goal_lat, goal_lon),
-                corridor_m=attempt_corridor,
-                debug=True
+                min_clearance_m=min_clearance_m,
+                search_margin_m=margin_m
             )
-            debug_msgs.extend(attempt_debug)
 
             if attempt_path:
                 path = attempt_path
@@ -783,8 +864,7 @@ def compute_path():
 
         if not path:
             return jsonify(
-                error="No path found. Try increasing corridor width or moving points around hostile barriers.",
-                debug=debug_msgs
+                error="No path found with the current hostile-clearance requirement. Lower the clearance or move points."
             )
 
         total_dist = 0
@@ -804,7 +884,6 @@ def compute_path():
         
         return jsonify(
             path=path, 
-            debug=debug_msgs, 
             distance_m=round(total_dist), 
             estimated_time_min=est_time_min,
             risk_level=risk_level,
@@ -812,7 +891,7 @@ def compute_path():
         )
 
     except Exception as e:
-        return jsonify(error=str(e), debug=[str(e)])
+        return jsonify(error=str(e))
 
 @app.route('/tile_bounds')
 def tile_bounds():
@@ -852,10 +931,6 @@ def tile_bounds():
 
     return jsonify(bounds=[[south, west], [north, east]], center=[center_lat, center_lon], minZoom=2, maxZoom=18)
 
-# ============================================================
-# SERVER MODE: MONITORING ROUTES
-# ============================================================
-
 if APP_MODE == "server":
     @app.route('/monitor')
     def monitor():
@@ -874,7 +949,6 @@ if APP_MODE == "server":
             active_ips = set()
             active_clients = {}  # ip -> {last_seen, user, path}
             
-            # Get current time and 5 minutes ago
             now = datetime.now()
             five_min_ago = now - timedelta(minutes=5)
             
@@ -885,10 +959,8 @@ if APP_MODE == "server":
                     recent_lines = lines[-100:]
                     traffic_entries = [line.strip() for line in recent_lines if line.strip()]
                     
-                    # Count active sessions from last 5 minutes and track details
                     for line in lines:
                         try:
-                            # Extract timestamp: format is "YYYY-MM-DD HH:MM:SS,mmm"
                             timestamp_str = line.split('|')[0].strip()
                             entry_time = datetime.strptime(timestamp_str.rsplit(',', 1)[0], '%Y-%m-%d %H:%M:%S')
                             
@@ -898,7 +970,6 @@ if APP_MODE == "server":
                                     ip = ip_match.group(1)
                                     active_ips.add(ip)
                                     
-                                    # Track detailed info for each IP
                                     if ip not in active_clients or entry_time > active_clients[ip]['last_seen']:
                                         path_match = re.search(r'path=([^\s]+)', line)
                                         method_match = re.search(r'method=(\w+)', line)
@@ -918,7 +989,6 @@ if APP_MODE == "server":
                     recent_lines = lines[-50:]
                     actions_entries = [line.strip() for line in recent_lines if line.strip()]
             
-            # Convert active_clients dict to list for JSON response
             active_clients_list = [
                 {
                     'ip': ip,
@@ -928,7 +998,6 @@ if APP_MODE == "server":
                 }
                 for ip, info in active_clients.items()
             ]
-            # Sort by most recent first
             active_clients_list.sort(key=lambda x: x['last_seen'], reverse=True)
             
             return jsonify({
@@ -962,10 +1031,6 @@ if APP_MODE == "server":
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-# ============================================================
-# APPLICATION STARTUP
-# ============================================================
-
 if __name__ == "__main__":
     os.makedirs(os.path.join(os.path.dirname(__file__), 'static'), exist_ok=True)
     os.makedirs(os.path.join(os.path.dirname(__file__), 'data'), exist_ok=True)
@@ -993,7 +1058,16 @@ if __name__ == "__main__":
             port = 5001
         print(f"Starting POPMAP SERVER on port {port}")
 
-        public_server_url = detect_public_url(port, use_ngrok=args.public)
+        ngrok_url = None
+        if args.ngrok:
+            ngrok_url = start_ngrok_tunnel(port)
+            if ngrok_url:
+                print(f"[Server] Using ngrok public URL: {ngrok_url}")
+                os.environ["PUBLIC_SERVER_URL"] = ngrok_url
+            else:
+                print("[Server] ngrok unavailable; falling back to detected local/network URL.")
+
+        public_server_url = detect_public_url(port, use_ngrok=args.ngrok)
 
         try:
             connection_id = generate_connection_id(public_server_url, CONNECTION_ID_SECRET or None)
@@ -1007,13 +1081,4 @@ if __name__ == "__main__":
             port = 5000
         print(f"Starting POPMAP CLIENT on port {port}")
 
-    if TILE_DIR:
-        print(f"[Startup] TILE_DIR: {TILE_DIR}")
-        print(f"[Startup] TILE_DIR exists: {os.path.isdir(TILE_DIR)}")
-        if os.path.isdir(TILE_DIR):
-            zoom_dirs = [d for d in os.listdir(TILE_DIR) if os.path.isdir(os.path.join(TILE_DIR, d)) and d.isdigit()]
-            print(f"[Startup] Available zoom levels: {sorted([int(z) for z in zoom_dirs])}")
-    else:
-        print(f"[Startup] TILE_DIR: None (tiles disabled)")
-
-    app.run(debug=False, port=port, host='0.0.0.0')
+    app.run(debug=True, port=port, host='0.0.0.0')

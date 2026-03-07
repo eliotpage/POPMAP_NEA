@@ -29,7 +29,7 @@ start_server.bat
 
 Optional flags:
 ```bash
-./start_server.sh --port 5001 --tile-dir /path/to/tiles --public
+./start_server.sh --port 5001 --tile-dir /path/to/tiles --ngrok
 ```
 
 What server prints:
@@ -83,6 +83,6 @@ If server is in Codespaces:
 2. Use printed Connection ID on any client
 
 If server is local PC and needs internet access:
-1. Start ngrok in another terminal: `ngrok http 5001`
-2. Start server with: `./start_server.sh --public`
+1. Install ngrok (`brew install ngrok` on macOS, or from ngrok.com)
+2. Start server with: `./start_server.sh --ngrok`
 3. Share printed Connection ID

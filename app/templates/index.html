@@ -4,8 +4,8 @@
     <head>
         <meta charset="UTF-8">
         <title>POPMAP</title>
-        <link rel="stylesheet" href="/static/leaflet/leaflet.css" />
-        <link rel="stylesheet" href="/static/leaflet-draw/dist/leaflet.draw.css" />
+        <link rel="stylesheet" href="{{ url_for('static', filename='leaflet/leaflet.css') }}" />
+        <link rel="stylesheet" href="{{ url_for('leaflet_draw_css_local') }}?v=local4" />
         <style>
             html,
             body {
@@ -17,10 +17,9 @@
 
             #map {
                 width: 100%;
-                height: calc(100% - 130px);
+                height: calc(100% - 92px);
             }
 
-            /* Header */
             #header-container {
                 display: flex;
                 justify-content: center;
@@ -39,6 +38,29 @@
                 display: flex;
                 align-items: center;
                 gap: 6px;
+            }
+
+            #refresh-rate-control {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                margin-right: 8px;
+            }
+
+            #refresh-rate-slider {
+                width: 80px;
+                height: 4px;
+                cursor: pointer;
+            }
+
+            #refresh-rate-value {
+                min-width: 34px;
+                font-size: 12px;
+                opacity: 0.9;
+            }
+
+            #merge-timer {
+                margin-left: 6px;
             }
 
             #merge-container button {
@@ -74,7 +96,6 @@
                 background: #3498db;
             }
 
-            /* Controls */
             #controls {
                 display: flex;
                 justify-content: center;
@@ -134,6 +155,15 @@
                 background: #3498db;
             }
 
+            #eta-left {
+                margin-top: 10px;
+                font-size: 12px;
+                color: #444;
+                min-width: 120px;
+                display: inline-block;
+                text-align: left;
+            }
+
             .copy-btn {
                 background: none;
                 border: none;
@@ -188,28 +218,61 @@
                 cursor: pointer;
             }
 
-            /* Fix for Leaflet Draw edit mode not properly exiting */
             .leaflet-draw-actions {
                 transition: opacity 0.2s;
             }
             
-            /* Ensure disabled state is visible */
             .leaflet-disabled.leaflet-draw-toolbar {
                 opacity: 0.4;
                 pointer-events: none;
             }
             
-            /* Ensure draw toolbar is visible above other elements */
             .leaflet-draw-toolbar {
                 z-index: 1000 !important;
+                display: block !important;
+                visibility: visible !important;
+                margin-top: 0px !important;
+                margin-left: 40px !important;
             }
             
             .leaflet-draw {
                 position: relative;
                 z-index: 1000 !important;
+                display: block !important;
+                visibility: visible !important;
+            }
+            
+            .leaflet-draw-section {
+                display: block !important;
+            }
+            
+            .leaflet-draw-actions {
+                margin-left: 40px !important;
+            }
+            
+            .leaflet-bar {
+                display: block !important;
             }
 
-            /* In-page alert */
+            .leaflet-draw-toolbar a {
+                background-image: url('/leaflet-draw/local/images/spritesheet.png') !important;
+                background-image: linear-gradient(transparent, transparent), url('/leaflet-draw/local/images/spritesheet.svg') !important;
+            }
+
+            .leaflet-retina .leaflet-draw-toolbar a {
+                background-image: url('/leaflet-draw/local/images/spritesheet-2x.png') !important;
+                background-image: linear-gradient(transparent, transparent), url('/leaflet-draw/local/images/spritesheet.svg') !important;
+            }
+
+            .leaflet-color-toggle-control {
+                position: absolute !important;
+                top: 100px !important;
+                left: 10px !important;
+                margin-top: 0 !important;
+                margin-left: 0 !important;
+                z-index: 1001 !important;
+            }
+
             #site-alert {
                 position: fixed;
                 top: 10px;
@@ -217,27 +280,67 @@
                 transform: translateX(-50%);
                 background: #f44336;
                 color: white;
-                padding: 15px 25px;
+                padding: 0;
                 border-radius: 4px;
                 display: none;
                 z-index: 10000;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.2);
                 max-width: 600px;
-                text-align: center;
+                min-width: 320px;
+                overflow: hidden;
+            }
+
+            #site-alert-inner {
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 12px 14px;
+            }
+
+            #site-alert-body {
+                flex: 1;
                 white-space: pre-line;
-                line-height: 1.5;
+                line-height: 1.35;
+                font-size: 14px;
+                text-align: left;
+            }
+
+            #site-alert-close {
+                border: none;
+                background: transparent;
+                color: white;
+                font-size: 18px;
+                line-height: 1;
+                cursor: pointer;
+                padding: 0;
+                width: 20px;
+                height: 20px;
+                opacity: 0.9;
+            }
+
+            #site-alert-close:hover {
+                opacity: 1;
             }
         </style>
     </head>
 
     <body>
         
-        <div id="site-alert"></div>
+        <div id="site-alert" role="alert" aria-live="polite">
+            <div id="site-alert-inner">
+                <div id="site-alert-body"></div>
+                <button id="site-alert-close" type="button" aria-label="Close popup">x</button>
+            </div>
+        </div>
 
         <div id="header-container">
             <div>POPMAP</div>
             <div id="merge-container">
-                <div id="merge-timer">Merge in: 10</div>
+                <div id="refresh-rate-control" title="Refresh rate in seconds">
+                    <input type="range" id="refresh-rate-slider" min="2" max="60" step="1" value="10">
+                    <span id="refresh-rate-value">10s</span>
+                </div>
+                <div id="merge-timer">Refresh in: 10</div>
                 <button id="pause-btn">Pause</button>
             </div>
             <div id="header-buttons">
@@ -264,31 +367,50 @@
                 </button>
             </div>
             <div style="display: flex; align-items: center; gap: 5px;">
-                <label for="corridorWidth">Corridor width:</label>
-                <input type="range" id="corridorWidth" min="10" max="500" step="10" value="50">
-                <span id="corridorValue">50</span> m
+                <label for="clearanceDistance">Min hostile distance:</label>
+                <input type="range" id="clearanceDistance" min="0" max="100" step="1" value="0">
+                <span id="clearanceValue">10</span> m
             </div>
-            <button onclick="plotPath()">Show Path</button>
+            <button id="show-path-btn" onclick="plotPath()">Show Path</button>
+            <span id="eta-left"></span>
         </div>
 
         <div id="map"></div>
 
-        <script src="/static/leaflet/leaflet.js"></script>
-        <script src="/static/leaflet-draw/dist/leaflet.draw.js"></script>
+        <script src="{{ url_for('static', filename='leaflet/leaflet.js') }}"></script>
+        <script src="{{ url_for('leaflet_draw_js_local') }}?v=local4"></script>
         <script>
+            if (typeof L.Control.Draw === 'undefined') {
+                alert('ERROR: Leaflet Draw library failed to load. Drawing tools will not work.');
+            }
+            
+            let siteAlertTimer = null;
+
+            function hideAlert() {
+                const alertDiv = document.getElementById('site-alert');
+                alertDiv.style.display = 'none';
+                if (siteAlertTimer) {
+                    clearTimeout(siteAlertTimer);
+                    siteAlertTimer = null;
+                }
+            }
+
             function showAlert(msg, type='error', duration=5000) {
                 const alertDiv = document.getElementById('site-alert');
-                
+                const bodyDiv = document.getElementById('site-alert-body');
+
+                if (!document.getElementById('site-alert-close').dataset.bound) {
+                    const closeBtn = document.getElementById('site-alert-close');
+                    closeBtn.addEventListener('click', hideAlert);
+                    closeBtn.dataset.bound = '1';
+                }
 
                 if (type === 'low') {
                     alertDiv.style.background = '#4CAF50';
-                    msg = '🟢 ' + msg;
                 } else if (type === 'medium') {
                     alertDiv.style.background = '#FF9800';
-                    msg = '🟡 ' + msg;
                 } else if (type === 'high') {
                     alertDiv.style.background = '#f44336';
-                    msg = '🔴 ' + msg;
                 } else if (type === 'success') {
                     alertDiv.style.background = '#4CAF50';
                 } else if (type === 'warning') {
@@ -298,19 +420,59 @@
                 } else {
                     alertDiv.style.background = '#f44336';
                 }
-                
-                alertDiv.textContent = msg;
+
+                bodyDiv.textContent = msg;
                 alertDiv.style.display = 'block';
-                setTimeout(() => { alertDiv.style.display = 'none'; }, duration);
+
+                if (siteAlertTimer) clearTimeout(siteAlertTimer);
+                if (duration > 0) {
+                    siteAlertTimer = setTimeout(hideAlert, duration);
+                }
             }
 
 
             let map = L.map('map', {
                 center: [35.029294, 33.050995],
                 zoom: 11,
-                minZoom: 2,
+                minZoom: 11,
                 maxZoom: 18
             });
+
+            let etaCountdownTimer = null;
+
+            function setEtaText(text) {
+                const etaEl = document.getElementById('eta-left');
+                etaEl.textContent = text || '';
+            }
+
+            function stopEtaCountdown() {
+                if (etaCountdownTimer) {
+                    clearInterval(etaCountdownTimer);
+                    etaCountdownTimer = null;
+                }
+            }
+
+            function startEtaCountdown(totalSeconds) {
+                stopEtaCountdown();
+
+                let remaining = Math.max(0, Math.round(totalSeconds));
+                const render = () => {
+                    const mins = Math.floor(remaining / 60);
+                    const secs = remaining % 60;
+                    setEtaText(`Calculating... ${mins}:${String(secs).padStart(2, '0')}`);
+                };
+
+                render();
+                etaCountdownTimer = setInterval(() => {
+                    remaining -= 1;
+                    if (remaining <= 0) {
+                        stopEtaCountdown();
+                        setEtaText('Calculating... 0:00');
+                        return;
+                    }
+                    render();
+                }, 1000);
+            }
 
             L.tileLayer('/tiles/{z}/{x}/{y}.png', {
                 maxNativeZoom: 15,
@@ -322,8 +484,12 @@
             let drawings = [];
             let lastMarkerClick = null;
             let refreshPaused = false;
-            const POLL_INTERVAL_SEC = 10;
-            const POLL_INTERVAL = POLL_INTERVAL_SEC * 1000;
+            const REFRESH_RATE_KEY = 'refreshRateSec';
+            let pollIntervalSec = parseInt(localStorage.getItem(REFRESH_RATE_KEY), 10);
+            if (isNaN(pollIntervalSec)) {
+                pollIntervalSec = 10;
+            }
+            pollIntervalSec = Math.min(60, Math.max(2, pollIntervalSec));
 
 
             const COLORS = ['blue', 'red', 'green', 'orange', 'yellow', 'violet', 'grey', 'black'];
@@ -344,6 +510,7 @@
             L.Control.ColorToggle = L.Control.extend({
                 onAdd: function (map) {
                     const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control leaflet-control-custom');
+                    container.classList.add('leaflet-color-toggle-control');
                     container.style.background = 'white';
                     container.style.padding = '4px';
                     container.style.borderRadius = '4px';
@@ -351,9 +518,6 @@
                     container.style.flexDirection = 'column';
                     container.style.gap = '2px';
                     container.title = 'Select draw color';
-                    container.style.position = 'absolute';
-                    container.style.top = '4px';
-                    container.style.left = '0px';
                     COLORS.forEach(c => {
                         const btn = L.DomUtil.create('div', 'color-btn', container);
                         btn.style.width = '18px';
@@ -370,13 +534,6 @@
                 },
                 onRemove: function () { }
             });
-
-            const colorControl = new L.Control.ColorToggle({ position: 'topleft' });
-            colorControl.addTo(map);
-            const colorContainer = colorControl.getContainer();
-            colorContainer.style.marginTop = '140px';
-            colorContainer.style.marginLeft = '10px';
-
 
             let drawControl = new L.Control.Draw({
                 position: 'topleft',
@@ -415,20 +572,10 @@
                 }
             });
             map.addControl(drawControl);
+
+            const colorControl = new L.Control.ColorToggle({ position: 'topleft' });
+            colorControl.addTo(map);
             
-            // Verify draw control was added
-            try {
-                const drawToolbar = document.querySelector('.leaflet-draw-toolbar');
-                if (drawToolbar) {
-                    console.log('✓ Draw toolbar created successfully');
-                } else {
-                    console.warn('⚠️  Draw toolbar element not found after control creation');
-                }
-            } catch (e) {
-                console.warn('Could not verify draw toolbar:', e);
-            }
-
-
             window.mapDrawControl = drawControl;
 
 
@@ -480,7 +627,7 @@
                         </div>
                         <label><input type="checkbox" class="hostile-toggle"/> Hostile</label>
                     </div>
-                `);
+                `, { closeButton: true });
                 layer.on('popupopen', () => {
                     const cb = layer.getPopup().getElement().querySelector('.hostile-toggle');
                     cb.checked = layer._hostile || false;
@@ -501,7 +648,7 @@
                     <div style="display:flex;flex-direction:column;gap:6px">
                         <label><input type="checkbox" class="hostile-toggle"/> Hostile</label>
                     </div>
-                `);
+                `, { closeButton: true });
                 layer.on('popupopen', () => {
                     const cb = layer.getPopup().getElement().querySelector('.hostile-toggle');
                     cb.checked = layer._hostile || false;
@@ -516,7 +663,6 @@
 
 
             function saveDrawings() {
-                console.log('Saving', drawings.length, 'drawings...');
                 fetch('/save_drawings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -525,9 +671,8 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    console.log("Drawings saved successfully");
                 })
-                .catch(err => console.error("Error saving drawings:", err));
+                .catch(err => {});
             }
 
             function reportAction(action, feature) {
@@ -549,12 +694,10 @@
                         keepalive: true
                     }).catch(() => {});
                 } catch (err) {
-                    console.warn('Failed to report action', err);
                 }
             }
 
             function safeLoadDrawings() {
-                console.log('Loading drawings from server...');
                 fetch('/merge_drawings')
                     .then(r => r.json())
                     .then(data => {
@@ -572,9 +715,8 @@
                                 loadedCount++;
                             }
                         });
-                        console.log(`Loaded ${loadedCount} active drawings (${drawings.length} total including deleted)`);
                     })
-                    .catch(err => console.error("Error loading drawings:", err));
+                    .catch(err => {});
             }
 
 
@@ -604,12 +746,10 @@
                 });
                 
                 saveDrawings();
-                showAlert(`✓ Loaded ${loadedCount} demo drawings`, 'success', 3000);
-                console.log('Demo drawings initialized');
+                showAlert(`Loaded ${loadedCount} demo drawings`, 'success', 3000);
             }
 
 
-            // Handle new shapes/markers drawn on map
             map.on(L.Draw.Event.CREATED, function (e) {
                 const layer = e.layer;
                 layer._hostile = false;
@@ -631,17 +771,14 @@
 
                 saveDrawings();
                 reportAction('draw', feature);
-                console.log('Created and saved:', feature.properties._id);
             });
 
-            // Handle deleted shapes - mark as deleted in database
             map.on(L.Draw.Event.DELETED, function (e) {
                 e.layers.eachLayer(l => {
                     const f = drawings.find(f => f.properties._id === l._leaflet_id);
                     if (f) {
                         f.properties.deleted = true;
                         reportAction('delete', f);
-                        console.log('Deleted layer:', l._leaflet_id);
                     }
                 });
                 saveDrawings();
@@ -649,7 +786,6 @@
 
 
             map.on(L.Draw.Event.DRAWSTART, function (e) {
-                console.log('Draw mode started');
             });
 
             map.on(L.Draw.Event.DRAWSTOP, function (e) {
@@ -657,19 +793,16 @@
                 const toolbar = document.querySelector('.leaflet-draw-actions');
                 if (toolbar) toolbar.style.display = 'none';
                 map.getContainer().style.cursor = '';
-                console.log('Draw mode stopped');
             });
 
 
             map.on(L.Draw.Event.DELETESTART, function (e) {
-                console.log('Delete mode started');
             });
 
             map.on(L.Draw.Event.DELETESTOP, function (e) {
                 const toolbar = document.querySelector('.leaflet-draw-actions');
                 if (toolbar) toolbar.style.display = 'none';
                 map.getContainer().style.cursor = '';
-                console.log('Delete mode stopped');
             });
 
 
@@ -706,12 +839,25 @@
             });
 
 
-            document.getElementById('corridorWidth').addEventListener('input', function () {
-                document.getElementById('corridorValue').textContent = this.value;
-            });
+            const CLEARANCE_MIN_M = 10;
+            const CLEARANCE_MAX_M = 5000;
+
+            function clearanceFromSlider(sliderValue) {
+                const t = Math.min(1, Math.max(0, Number(sliderValue) / 100));
+                const value = CLEARANCE_MIN_M * Math.pow(CLEARANCE_MAX_M / CLEARANCE_MIN_M, t);
+                return Math.round(value);
+            }
+
+            function updateClearanceLabel() {
+                const slider = document.getElementById('clearanceDistance');
+                const clearanceMeters = clearanceFromSlider(slider.value);
+                document.getElementById('clearanceValue').textContent = String(clearanceMeters);
+            }
+
+            document.getElementById('clearanceDistance').addEventListener('input', updateClearanceLabel);
+            updateClearanceLabel();
 
 
-            // Calculate and display optimal path from start to goal
             function plotPath() {
                 const s = document.getElementById('start').value.split(',');
                 const g = document.getElementById('goal').value.split(',');
@@ -721,58 +867,59 @@
                 }
                 const start_lon = parseFloat(s[0]), start_lat = parseFloat(s[1]);
                 const goal_lon = parseFloat(g[0]), goal_lat = parseFloat(g[1]);
-                const corridor = document.getElementById('corridorWidth').value;
+                const clearanceSliderValue = document.getElementById('clearanceDistance').value;
+                const clearanceMeters = clearanceFromSlider(clearanceSliderValue);
                 
-                console.log('Computing path...');
-                console.log(`Start: ${start_lat}, ${start_lon}`);
-                console.log(`Goal: ${goal_lat}, ${goal_lon}`);
-                console.log(`Corridor: ${corridor}m`);
+                const latDiff = goal_lat - start_lat;
+                const lonDiff = goal_lon - start_lon;
+                const straightLineDistance = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+                const distanceKm = straightLineDistance * 111;
                 
-                fetch(`/compute_path?start_lat=${start_lat}&start_lon=${start_lon}&goal_lat=${goal_lat}&goal_lon=${goal_lon}&corridor=${corridor}`)
+                const distanceFactor = distanceKm * 0.45;
+                const clearanceFactor = Math.log10((clearanceMeters / CLEARANCE_MIN_M) + 1) * 1.8;
+                const estimatedSeconds = Math.max(2, Math.min(25, 1.5 + distanceFactor + clearanceFactor));
+                
+                setEtaText('Calculating...');
+                startEtaCountdown(estimatedSeconds);
+                
+                fetch(`/compute_path?start_lat=${start_lat}&start_lon=${start_lon}&goal_lat=${goal_lat}&goal_lon=${goal_lon}&clearance=${clearanceMeters}`)
                     .then(r => r.json())
                     .then(res => {
-
-                        if (res.debug) {
-                            console.log('=== PATH COMPUTATION DEBUG ===');
-                            res.debug.forEach(msg => console.log(msg));
-                            console.log('==============================');
-                        }
+                        stopEtaCountdown();
+                        setEtaText('');
                         
                         if (res.error) {
-                            console.error('Path computation error:', res.error);
                             showAlert(`${res.error}\nCheck console for details.`, 'error', 5000);
                             return;
                         }
                         
                         if (!res.path || !res.path.length) {
-                            console.error('Empty path returned');
                             showAlert('No path found! Hostile zones may be blocking all routes.\nCheck console for details.', 'error', 4000);
                             return;
                         }
                         
-                        console.log(`Path found with ${res.path.length} waypoints`);
-                        console.log(`Distance: ${res.distance_m}m, Estimated time: ${res.estimated_time_min} min`);
-                        
-
                         const riskLevel = res.risk_level ? res.risk_level.toLowerCase() : 'info';
                         
-                        let alertMsg = `${riskLevel.toUpperCase()} RISK PATH\n\n`;
-                        alertMsg += `Distance: ${res.distance_m}m | Time: ${res.estimated_time_min} min\n`;
-                        
+                        const summaryParts = [
+                            `Distance ${res.distance_m}m`,
+                            `Time ${res.estimated_time_min} min`
+                        ];
+
                         if (res.min_hostile_distance_m !== null && res.min_hostile_distance_m !== undefined) {
-                            alertMsg += `Closest Hostile: ${res.min_hostile_distance_m}m away\n`;
+                            summaryParts.push(`Closest hostile ${res.min_hostile_distance_m}m`);
                         }
-                        
+
+                        let alertMsg = summaryParts.join(' | ');
+
                         if (riskLevel === 'high') {
-                            alertMsg += '\n⚠️ WARNING: Path passes very close to hostile zones!';
+                            alertMsg += '\nAvoid this route if possible.';
                         } else if (riskLevel === 'medium') {
-                            alertMsg += '\n⚠️ CAUTION: Path passes near hostile zones.';
+                            alertMsg += '\nUse caution near hostile zones.';
                         } else if (riskLevel === 'low') {
-                            alertMsg += '\n✓ Safe distance from hostile zones.';
+                            alertMsg += '\nRoute is clear of nearby hostile zones.';
                         }
-                        
-                        showAlert(alertMsg, riskLevel, 8000);
-                        console.log(`Risk Level: ${riskLevel.toUpperCase()}, Min Distance: ${res.min_hostile_distance_m}m`);
+
+                        showAlert(alertMsg, riskLevel, 7000);
                         
 
                         const oldPathIdx = drawings.findIndex(f => f.properties._id === 'path');
@@ -805,16 +952,17 @@
                         };
                         drawings.push(pathFeature);
                         saveDrawings();
-                        console.log('Path plotted and saved');
                     })
                     .catch(err => {
-                        console.error('Path computation failed:', err);
                         showAlert('Path computation failed! Check console for details.', 'error');
+                        setEtaText('');
                     });
             }
 
 
             function clearPath() {
+                stopEtaCountdown();
+                setEtaText('');
 
                 editableLayers.eachLayer(layer => {
                     if (layer._leaflet_id === 'path') {
@@ -825,26 +973,41 @@
                 const idx = drawings.findIndex(f => f.properties._id === 'path');
                 if (idx >= 0) drawings[idx].properties.deleted = true;
                 saveDrawings();
-                console.log('Path cleared');
             }
 
 
             const TIMER_KEY = 'nextMergeEpoch';
-            let nextMergeEpoch = parseFloat(localStorage.getItem(TIMER_KEY)) || (Date.now() / 1000 + POLL_INTERVAL_SEC);
+            let nextMergeEpoch = parseFloat(localStorage.getItem(TIMER_KEY)) || (Date.now() / 1000 + pollIntervalSec);
+
+            const refreshRateSlider = document.getElementById('refresh-rate-slider');
+            const refreshRateValue = document.getElementById('refresh-rate-value');
+            refreshRateSlider.value = String(pollIntervalSec);
+            refreshRateValue.textContent = `${pollIntervalSec}s`;
 
             function updateTimer() {
                 if (refreshPaused) return;
                 const now = Date.now() / 1000;
                 let remaining = Math.round(nextMergeEpoch - now);
                 if (remaining <= 0) {
-                    console.log('Timer hit 0, reloading drawings from server...');
                     safeLoadDrawings();
-                    nextMergeEpoch = now + POLL_INTERVAL_SEC;
+                    nextMergeEpoch = now + pollIntervalSec;
                     localStorage.setItem(TIMER_KEY, nextMergeEpoch);
-                    remaining = POLL_INTERVAL_SEC;
+                    remaining = pollIntervalSec;
                 }
-                document.getElementById('merge-timer').textContent = `Merge in: ${remaining}`;
+                document.getElementById('merge-timer').textContent = `Refresh in: ${remaining}`;
             }
+
+            refreshRateSlider.addEventListener('input', () => {
+                pollIntervalSec = parseInt(refreshRateSlider.value, 10);
+                refreshRateValue.textContent = `${pollIntervalSec}s`;
+                localStorage.setItem(REFRESH_RATE_KEY, String(pollIntervalSec));
+
+                if (!refreshPaused) {
+                    nextMergeEpoch = Date.now() / 1000 + pollIntervalSec;
+                    localStorage.setItem(TIMER_KEY, nextMergeEpoch);
+                    updateTimer();
+                }
+            });
 
             updateTimer();
             setInterval(updateTimer, 1000);
@@ -853,7 +1016,7 @@
                 refreshPaused = !refreshPaused;
                 document.getElementById('pause-btn').textContent = refreshPaused ? 'Resume' : 'Pause';
                 if (!refreshPaused) {
-                    const currentRemaining = parseInt(document.getElementById('merge-timer').textContent.split(': ')[1]) || POLL_INTERVAL_SEC;
+                    const currentRemaining = parseInt(document.getElementById('merge-timer').textContent.replace(/[^0-9]/g, ''), 10) || pollIntervalSec;
                     nextMergeEpoch = Date.now() / 1000 + currentRemaining;
                     localStorage.setItem(TIMER_KEY, nextMergeEpoch);
                     updateTimer();
@@ -862,8 +1025,6 @@
 
 
             window.addEventListener('beforeunload', function(e) {
-
-                console.log('Page closing, saving with sendBeacon...');
                 const blob = new Blob([JSON.stringify(drawings)], {type: 'application/json'});
                 navigator.sendBeacon('/save_drawings', blob);
             });
@@ -871,7 +1032,6 @@
 
             setInterval(function() {
                 if (drawings.length > 0) {
-                    console.log('Auto-save triggered');
                     saveDrawings();
                 }
             }, 10000);

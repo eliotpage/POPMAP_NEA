@@ -14,7 +14,6 @@ body {
     margin:0;
 }
 
-/* In-page alert */
 #site-alert {
     position: fixed;
     top: 10px;
@@ -103,7 +102,6 @@ body {
 </div>
 
 <script>
-// ================= In-page alert helper =================
 function showAlert(msg, type='error', duration=3000){
     const alertDiv = document.getElementById('site-alert');
     alertDiv.textContent = msg;
@@ -114,7 +112,6 @@ function showAlert(msg, type='error', duration=3000){
     setTimeout(()=>{ alertDiv.style.display='none'; }, duration);
 }
 
-// ================= OTP functions =================
 async function requestOTP() {
     const callsign = document.getElementById('callsign').value.trim();
     const contact = document.getElementById('contact').value.trim();
@@ -149,7 +146,6 @@ async function verifyOTP() {
     } catch(err){ showAlert("Network error: " + err); }
 }
 
-// ================= Enter key triggers =================
 document.getElementById('contact').addEventListener('keydown', e=>{
     if(e.key==='Enter'){ e.preventDefault(); document.querySelector('.input-with-button button').click(); }
 });

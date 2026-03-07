@@ -10,7 +10,6 @@ from shapely.ops import nearest_points
 
 
 class DStarLite:
-    """ D* Lite pathfinder with DEM and cost map. Uses road/water tiles to guide paths and avoid obstacles. """
     
     def __init__(self, dem_path, tile_dir=None, zoom=11):
         self.dem = rasterio.open(dem_path)
@@ -25,31 +24,28 @@ class DStarLite:
         self.base_cost_map = None
 
         self.hostile_mask = np.zeros_like(self.elev, dtype=bool)
+        self.hostile_distance_m = np.full_like(self.elev, np.inf, dtype=float)
 
         if tile_dir:
             self.build_cost_map_from_tiles(tile_dir, zoom)
             self.base_cost_map = self.cost_map.copy()
 
     def latlon_to_index(self, lat, lon):
-        """ Converts latitude and longitude to DEM row and column indices. """
         x, y = self.wgs84_to_dem.transform(lon, lat)
         col = int((x - self.dem.bounds.left) / self.dem.res[0])
         row = int((self.dem.bounds.top - y) / self.dem.res[1])
         return row, col
 
     def index_to_latlon(self, row, col):
-        """ Converts DEM row and column indices to latitude and longitude. """
         x = self.dem.bounds.left + col * self.dem.res[0]
         y = self.dem.bounds.top - row * self.dem.res[1]
         lon, lat = self.dem_to_wgs84.transform(x, y)
         return lat, lon
 
     def in_bounds(self, r, c):
-        """ Checks if a row and column index is within the bounds of the DEM. """
         return 0 <= r < self.rows and 0 <= c < self.cols
 
     def neighbors(self, r, c, corridor=None):
-        """ Returns the valid neighbors for a given cell, optionally within a corridor. """
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
                 if dr == 0 and dc == 0:
@@ -64,7 +60,6 @@ class DStarLite:
                 yield nr, nc
 
     def cost(self, r1, c1, r2, c2):
-        """ Returns the cost to move from (r1, c1) to (r2, c2). """
         if self.cost_map[r2, c2] <= 0:
             return float('inf')
         elev1 = self.elev[r1, c1] if self.elev[r1, c1] != self.nodata else 0
@@ -74,11 +69,9 @@ class DStarLite:
         return (dist + slope) * self.cost_map[r2, c2]
 
     def heuristic(self, r1, c1, r2, c2):
-        """ Heuristic function for the A* algorithm (straight-line distance). """
         return np.hypot(r2 - r1, c2 - c1)
 
     def build_cost_map_from_tiles(self, tile_dir, zoom):
-        """ Builds a cost map from road and water tiles. """
         cost = np.ones_like(self.elev, dtype=float) * 2
         tile_size = 256
         for x_tile in os.listdir(os.path.join(tile_dir, str(zoom))):
@@ -105,13 +98,13 @@ class DStarLite:
         self.cost_map = cost
 
     def apply_hostile_zones(self, hostile_features, influence_radius_m=100, cost_multiplier=10):
-        """ Rasterizes hostile shapes as impassable. Distance-based cost slope starts from the nearest point. """
         if self.base_cost_map is not None:
             self.cost_map = self.base_cost_map.copy()
         else:
             self.cost_map = np.ones_like(self.elev, dtype=float)
         
         self.hostile_mask = np.zeros_like(self.elev, dtype=bool)
+        self.hostile_distance_m = np.full_like(self.elev, np.inf, dtype=float)
         
         if not hostile_features:
             return
@@ -183,6 +176,7 @@ class DStarLite:
             distance_cells = distance_transform_edt(inv_mask)
             meters_per_pixel = self.meters_per_pixel()
             distance_m = distance_cells * meters_per_pixel
+            self.hostile_distance_m = distance_m
             
             influence_cost = np.clip((influence_radius_m - distance_m) / influence_radius_m * cost_multiplier, 0, cost_multiplier)
             
@@ -193,7 +187,7 @@ class DStarLite:
             print(f"[Hostile Zones] Influence radius: {influence_radius_m}m around hostile zones")
 
     def latlon_distance(self, lat1, lon1, lat2, lon2):
-        """ Haversine formula to calculate distance between two lat/lon points. """
+
         R = 6371000
         dLat = np.radians(lat2 - lat1)
         dLon = np.radians(lon2 - lon1)
@@ -202,7 +196,6 @@ class DStarLite:
         return R * c
 
     def meters_per_pixel(self):
-        """ Returns average raster resolution in meters per pixel. """
         x_res = abs(self.dem.res[0])
         y_res = abs(self.dem.res[1])
 
@@ -215,52 +208,20 @@ class DStarLite:
 
         return (x_res + y_res) / 2
 
-    # Assess path risk based on proximity to hostile zones (Low/Medium/High)
     def calculate_path_risk(self, path):
-        """ 
-        Calculate risk level of a path based on proximity to hostile zones.
-        Returns: (risk_level, min_distance_m)
-            risk_level: 'low', 'medium', or 'high'
-            min_distance_m: minimum distance to hostile zones in meters
-        """
         if not np.any(self.hostile_mask):
             return 'low', float('inf')
-        
+
         min_distance_m = float('inf')
-        
+
         for lat, lon in path:
             r, c = self.latlon_to_index(lat, lon)
-            
+
             if not self.in_bounds(r, c):
                 continue
-            
-            if self.hostile_mask[r, c]:
-                min_distance_m = 0
-                break
-            
-            search_radius = 100
-            found_hostile = False
-            
-            for dr in range(-search_radius, search_radius + 1):
-                for dc in range(-search_radius, search_radius + 1):
-                    nr, nc = r + dr, c + dc
-                    
-                    if not self.in_bounds(nr, nc):
-                        continue
-                    
-                    if self.hostile_mask[nr, nc]:
-                        hostile_lat, hostile_lon = self.index_to_latlon(nr, nc)
-                        dist = self.latlon_distance(lat, lon, hostile_lat, hostile_lon)
-                        min_distance_m = min(min_distance_m, dist)
-                        found_hostile = True
-                        
-                        if min_distance_m < 50:
-                            break
-                
-                if found_hostile and min_distance_m < 50:
-                    break
-            
-            if min_distance_m == 0:
+
+            min_distance_m = min(min_distance_m, float(self.hostile_distance_m[r, c]))
+            if min_distance_m <= 0:
                 break
         
         if min_distance_m < 100:
@@ -272,10 +233,11 @@ class DStarLite:
         
         return risk_level, min_distance_m
 
-    def compute_path(self, start, goal, corridor_m=None, debug=False):
+    def compute_path(self, start, goal, min_clearance_m=0, search_margin_m=None, debug=False):
         debug_msgs = []
         start_r, start_c = self.latlon_to_index(*start)
         goal_r, goal_c = self.latlon_to_index(*goal)
+        min_clearance_m = max(0.0, float(min_clearance_m or 0.0))
 
         if debug:
             debug_msgs.append(f"Start indices: {start_r},{start_c}")
@@ -289,27 +251,37 @@ class DStarLite:
             if self.hostile_mask[goal_r, goal_c]:
                 debug_msgs.append("WARNING: Goal point is in a hostile zone!")
 
-        meters_per_pixel = self.meters_per_pixel()
-        corridor_cells = int(corridor_m / meters_per_pixel) if corridor_m else 0
-
-        min_r = max(0, min(start_r, goal_r) - corridor_cells)
-        max_r = min(self.rows - 1, max(start_r, goal_r) + corridor_cells)
-        min_c = max(0, min(start_c, goal_c) - corridor_cells)
-        max_c = min(self.cols - 1, max(start_c, goal_c) + corridor_cells)
-
         if debug:
-            debug_msgs.append(f"Corridor bounds (inflated by {corridor_m} m): {(min_r, max_r, min_c, max_c)}")
+            debug_msgs.append(f"Minimum hostile clearance required: {min_clearance_m} m")
+
+        search_bounds = None
+        if search_margin_m is not None and search_margin_m > 0:
+            meters_per_pixel = self.meters_per_pixel()
+            margin_cells = max(1, int(search_margin_m / meters_per_pixel))
+            min_r = max(0, min(start_r, goal_r) - margin_cells)
+            max_r = min(self.rows - 1, max(start_r, goal_r) + margin_cells)
+            min_c = max(0, min(start_c, goal_c) - margin_cells)
+            max_c = min(self.cols - 1, max(start_c, goal_c) + margin_cells)
+            search_bounds = (min_r, max_r, min_c, max_c)
+            if debug:
+                debug_msgs.append(f"Search bounds (margin {round(search_margin_m)}m): {search_bounds}")
+        elif debug:
+            debug_msgs.append("Search bounds: full map")
 
         frontier = []
-        heapq.heappush(frontier, (0, (start_r, start_c)))
+        heapq.heappush(frontier, (0.0, 0.0, (start_r, start_c)))
         came_from = {(start_r, start_c): None}
         cost_so_far = {(start_r, start_c): 0}
         steps = 0
         skipped_hostile = 0
+        skipped_clearance = 0
 
         while frontier:
             steps += 1
-            priority, (r, c) = heapq.heappop(frontier)
+            _, popped_g, (r, c) = heapq.heappop(frontier)
+
+            if popped_g != cost_so_far.get((r, c), float('inf')):
+                continue
 
             if (r, c) == (goal_r, goal_c):
                 if debug:
@@ -317,7 +289,11 @@ class DStarLite:
                     debug_msgs.append(f"Skipped {skipped_hostile} hostile cells during pathfinding")
                 break
 
-            for nr, nc in self.neighbors(r, c, corridor=(min_r, max_r, min_c, max_c)):
+            for nr, nc in self.neighbors(r, c, corridor=search_bounds):
+                if min_clearance_m > 0 and self.hostile_distance_m[nr, nc] < min_clearance_m:
+                    skipped_clearance += 1
+                    continue
+
                 new_cost = cost_so_far[(r, c)] + self.cost(r, c, nr, nc)
                 
                 if new_cost == float('inf'):
@@ -326,7 +302,8 @@ class DStarLite:
                     
                 if (nr, nc) not in cost_so_far or new_cost < cost_so_far[(nr, nc)]:
                     cost_so_far[(nr, nc)] = new_cost
-                    heapq.heappush(frontier, (new_cost + self.heuristic(nr, nc, goal_r, goal_c), (nr, nc)))
+                    heuristic_cost = self.heuristic(nr, nc, goal_r, goal_c)
+                    heapq.heappush(frontier, (new_cost + heuristic_cost, new_cost, (nr, nc)))
                     came_from[(nr, nc)] = (r, c)
 
             if debug and steps % 1000 == 0:
@@ -339,6 +316,7 @@ class DStarLite:
                 debug_msgs.append("FAILED: Goal was never reached - likely blocked by hostile zones")
                 debug_msgs.append(f"Total cells explored: {len(came_from)}")
                 debug_msgs.append(f"Hostile cells skipped: {skipped_hostile}")
+                debug_msgs.append(f"Cells skipped due to clearance threshold: {skipped_clearance}")
             return path, debug_msgs
         
         current = (goal_r, goal_c)
@@ -350,4 +328,5 @@ class DStarLite:
         if debug:
             debug_msgs.append(f"SUCCESS: Path found with {len(path)} waypoints")
             debug_msgs.append(f"Hostile cells avoided: {skipped_hostile}")
+            debug_msgs.append(f"Cells skipped due to clearance threshold: {skipped_clearance}")
         return path, debug_msgs
